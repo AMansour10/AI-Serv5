@@ -1,4 +1,9 @@
-﻿from fastapi import FastAPI
+﻿from dotenv import load_dotenv
+
+# Automatically load environment variables from .env file at startup
+load_dotenv()
+
+from fastapi import FastAPI
 from app.db.session import engine, Base
 import app.models  # Register models
 from app.api.career_coach import router as career_coach_router
