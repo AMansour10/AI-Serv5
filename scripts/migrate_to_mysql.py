@@ -1,9 +1,10 @@
 import os
-import sys
 import sqlite3
-from datetime import datetime
-from dotenv import load_dotenv
+import sys
+from datetime import datetime, timezone
+
 import pymysql
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -11,30 +12,33 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.db.session import Base, engine, SessionLocal, DATABASE_URL
+from app.db.session import Base, SessionLocal, engine
 from app.models import (
     Employee,
-    PerformanceRecord,
+    EvaluationTheme,
     Goal,
+    PerformanceRecord,
     Skill,
     TaskOutcome,
-    EvaluationTheme,
 )
+
 
 def parse_date(date_str):
     if not date_str:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
     if isinstance(date_str, datetime):
-        return date_str
+        return date_str if date_str.tzinfo else date_str.replace(tzinfo=timezone.utc)
     try:
-        return datetime.fromisoformat(date_str)
-    except Exception:
+        dt = datetime.fromisoformat(date_str)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
         for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
             try:
-                return datetime.strptime(date_str, fmt)
+                dt = datetime.strptime(date_str, fmt).replace(tzinfo=timezone.utc)
+                return dt
             except ValueError:
                 pass
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 def ensure_database_exists():
     db_user = os.getenv('DB_USER', 'root')

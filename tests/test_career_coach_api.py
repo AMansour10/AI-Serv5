@@ -1,30 +1,30 @@
-import json
 from unittest.mock import MagicMock
+
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from fastapi.testclient import TestClient
 
+from app.api.career_coach import get_career_coach_ai_service
 from app.db.session import Base, get_db
 from app.main import app
 from app.models import (
     Employee,
-    PerformanceRecord,
+    EvaluationTheme,
     Goal,
+    PerformanceRecord,
     Skill,
     TaskOutcome,
-    EvaluationTheme,
 )
 from app.schemas.career_coach import (
-    CareerCoachSuccessResponse,
     CareerCoachInsufficientDataResponse,
+    CareerCoachSuccessResponse,
 )
 from app.services.career_coach_ai import (
     CareerCoachAIService,
     CareerCoachAIServiceError,
 )
-from app.api.career_coach import get_career_coach_ai_service
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
@@ -115,14 +115,31 @@ MOCK_SUCCESS_PLAN = CareerCoachSuccessResponse(
         {
             "title": "Architectural Mastery",
             "description": "Consistently designs and deploys resilient systems.",
-            "evidence": ["98% task completion rate", "Delivered multi-region failover"]
+            "evidence": [
+                {
+                    "source_type": "performance",
+                    "source_id": 1,
+                    "claim": "98% task completion rate"
+                },
+                {
+                    "source_type": "skill",
+                    "source_id": 1,
+                    "claim": "Delivered multi-region failover"
+                }
+            ]
         }
     ],
     development_areas=[
         {
             "title": "Technical Blogging & Advocacy",
             "description": "Document architectural insights externally.",
-            "evidence": ["Evaluation notes opportunity for wider thought leadership"],
+            "evidence": [
+                {
+                    "source_type": "evaluation_theme",
+                    "source_id": 1,
+                    "claim": "Evaluation notes opportunity for wider thought leadership"
+                }
+            ],
             "priority": "medium"
         }
     ],
