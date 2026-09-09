@@ -5,6 +5,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from app.schemas.career_coach import (
     CareerCoachInsufficientDataResponse,
+    CareerCoachRequest,
     CareerCoachResponse,
     CareerCoachSuccessResponse,
     PriorityLevel,
@@ -216,3 +217,37 @@ def test_excessive_string_length_rejected():
     with pytest.raises(ValidationError) as exc_info:
         CareerCoachSuccessResponse.model_validate(data)
     assert "title" in str(exc_info.value)
+
+
+# 8. CareerCoachRequest validation tests
+def test_valid_career_coach_request():
+    req = CareerCoachRequest(employee_id="EMP-001", period="2026-Q3")
+    assert req.employee_id == "EMP-001"
+    assert req.period == "2026-Q3"
+
+    # Optional period omitted
+    req2 = CareerCoachRequest(employee_id="EMP-001")
+    assert req2.employee_id == "EMP-001"
+    assert req2.period is None
+
+
+def test_career_coach_request_missing_employee_id():
+    with pytest.raises(ValidationError) as exc:
+        CareerCoachRequest()
+    assert "employee_id" in str(exc.value)
+
+
+def test_career_coach_request_empty_employee_id():
+    with pytest.raises(ValidationError) as exc:
+        CareerCoachRequest(employee_id="")
+    assert "employee_id" in str(exc.value)
+
+
+def test_career_coach_request_rejects_extra_fields():
+    with pytest.raises(ValidationError) as exc:
+        CareerCoachRequest(
+            employee_id="EMP-001",
+            unexpected_field="disallowed",
+        )
+    assert "extra_forbidden" in str(exc.value) or "unexpected_field" in str(exc.value)
+

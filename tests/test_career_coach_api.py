@@ -164,7 +164,10 @@ def test_successful_career_coach_api_request(client, seed_employee):
 
     app.dependency_overrides[get_career_coach_ai_service] = lambda: mock_ai_service
 
-    response = client.post("/api/career-coach/EMP-API-001?period=2026-Q3")
+    response = client.post(
+        "/api/career-coach",
+        json={"employee_id": "EMP-API-001", "period": "2026-Q3"},
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -175,11 +178,12 @@ def test_successful_career_coach_api_request(client, seed_employee):
     assert len(data["development_plan"]) == 1
     assert data["development_plan"][0]["suggested_timeline"] == "45 days"
 
-    # Verify query parameter period was correctly passed down
+    # Verify parameters from request body were correctly passed down
     mock_ai_service.generate_career_plan.assert_called_once()
     call_kwargs = mock_ai_service.generate_career_plan.call_args.kwargs
     assert call_kwargs["employee_id"] == "EMP-API-001"
     assert call_kwargs["period"] == "2026-Q3"
+
 
 # 2. Insufficient-data response
 def test_insufficient_data_api_response(client, db_session):
@@ -206,7 +210,10 @@ def test_insufficient_data_api_response(client, db_session):
 
     app.dependency_overrides[get_career_coach_ai_service] = lambda: mock_ai_service
 
-    response = client.post("/api/career-coach/EMP-SPARSE")
+    response = client.post(
+        "/api/career-coach",
+        json={"employee_id": "EMP-SPARSE"},
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -214,6 +221,7 @@ def test_insufficient_data_api_response(client, db_session):
     assert data["employee_id"] == "EMP-SPARSE"
     assert "performance" in data["missing_categories"]
     assert "Not enough approved employee data" in data["message"]
+
 
 # 3. AI service error handled cleanly with HTTP error (no secrets or stack traces leaked)
 def test_ai_service_error_handling(client, seed_employee):
@@ -224,7 +232,10 @@ def test_ai_service_error_handling(client, seed_employee):
 
     app.dependency_overrides[get_career_coach_ai_service] = lambda: mock_ai_service
 
-    response = client.post("/api/career-coach/EMP-API-001")
+    response = client.post(
+        "/api/career-coach",
+        json={"employee_id": "EMP-API-001"},
+    )
 
     assert response.status_code == 502
     data = response.json()
@@ -232,3 +243,40 @@ def test_ai_service_error_handling(client, seed_employee):
     # Verify no raw python traceback or internal keys in response
     assert "Traceback" not in response.text
     assert "gsk_" not in response.text
+
+
+# 4. Request validation: missing employee_id
+def test_career_coach_validation_missing_employee_id(client):
+    response = client.post(
+        "/api/career-coach",
+        json={},
+    )
+    assert response.status_code == 422
+
+
+# 5. Request validation: extra fields rejected
+def test_career_coach_validation_extra_fields_rejected(client):
+    response = client.post(
+        "/api/career-coach",
+        json={"employee_id": "EMP-API-001", "unexpected": "disallowed"},
+    )
+    assert response.status_code == 422
+
+
+# 6. OpenAPI contract: no path or query parameters, body has employee_id and period
+def test_career_coach_openapi_contract():
+    openapi_schema = app.openapi()
+    assert "/api/career-coach" in openapi_schema["paths"]
+    endpoint_spec = openapi_schema["paths"]["/api/career-coach"]["post"]
+
+    # Verify no path or query parameters
+    params = endpoint_spec.get("parameters", [])
+    assert len(params) == 0
+
+    # Verify request body schema
+    schema_ref = endpoint_spec["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    schema_name = schema_ref.split("/")[-1]
+    body_schema = openapi_schema["components"]["schemas"][schema_name]
+    assert "employee_id" in body_schema["properties"]
+    assert "period" in body_schema["properties"]
+    assert body_schema["required"] == ["employee_id"]

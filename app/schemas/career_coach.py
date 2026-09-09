@@ -34,6 +34,25 @@ CANONICAL_SOURCE_TYPES = {
 }
 
 
+# Request Schema
+class CareerCoachRequest(BaseModel):
+    """Input request model for generating a career development plan."""
+
+    employee_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Target employee identifier (e.g. 'EMP-001')",
+    )
+    period: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Optional performance/reporting period filter (e.g. '2026-Q3')",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 # 0. Deterministic Grounded Evidence Reference
 class EvidenceItem(BaseModel):
     source_type: str = Field(

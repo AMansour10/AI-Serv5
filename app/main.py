@@ -11,18 +11,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import logging
+
 from fastapi import FastAPI
+from sqlalchemy.exc import SQLAlchemyError
 
 import app.models
 from app.api.career_coach import router as career_coach_router
+from app.api.policy_assistant import router as policy_assistant_router
 from app.db.session import Base, engine
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize SQLite database schema at startup if sqlite engine is active
-    if str(engine.url).startswith("sqlite"):
+    # Initialize database schema at startup if database is available
+    try:
         Base.metadata.create_all(bind=engine)
+    except (SQLAlchemyError, OSError) as exc:
+        logger.warning("Database schema initialization warning: %s", exc)
     yield
 
 
@@ -32,8 +40,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Register API Router
+# Register API Routers
 app.include_router(career_coach_router, prefix="/api")
+app.include_router(policy_assistant_router, prefix="/api")
+
 
 
 @app.get("/health", tags=["Health"])

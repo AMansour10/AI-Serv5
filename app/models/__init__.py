@@ -112,3 +112,19 @@ class EvaluationTheme(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     employee = relationship("Employee", back_populates="evaluation_themes")
+
+
+class CompanyPolicy(Base):
+    __tablename__ = "company_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    policy_code = Column(String(50), unique=True, index=True, nullable=False)
+    title = Column(String(255), nullable=False)
+    category = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
+    version = Column(String(20), default="1.0", nullable=False)
+    is_active = Column(Boolean, default=True, server_default="1", nullable=False)
+    is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+

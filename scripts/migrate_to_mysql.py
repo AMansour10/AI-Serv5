@@ -14,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
 
 from app.db.session import Base, SessionLocal, engine
 from app.models import (
+    CompanyPolicy,
     Employee,
     EvaluationTheme,
     Goal,
@@ -180,6 +181,29 @@ def migrate_data():
                 db.add(th)
         db.commit()
 
+        try:
+            sqlite_policies = sqlite_conn.execute('SELECT * FROM company_policies').fetchall()
+            print(f'Migrating {len(sqlite_policies)} Company Policies...')
+            for row in sqlite_policies:
+                existing = db.query(CompanyPolicy).filter(CompanyPolicy.policy_code == row['policy_code']).first()
+                if not existing:
+                    pol = CompanyPolicy(
+                        id=row['id'],
+                        policy_code=row['policy_code'],
+                        title=row['title'],
+                        category=row['category'],
+                        content=row['content'],
+                        summary=row['summary'],
+                        version=row['version'],
+                        is_active=bool(row['is_active']),
+                        is_approved=bool(row['is_approved']),
+                        created_at=parse_date(row['created_at']),
+                    )
+                    db.add(pol)
+            db.commit()
+        except sqlite3.OperationalError:
+            pass
+
         print('Verification Report in MySQL:')
         counts = {
             'employees': db.query(Employee).count(),
@@ -188,6 +212,7 @@ def migrate_data():
             'skills': db.query(Skill).count(),
             'task_outcomes': db.query(TaskOutcome).count(),
             'evaluation_themes': db.query(EvaluationTheme).count(),
+            'company_policies': db.query(CompanyPolicy).count(),
         }
         for table, count in counts.items():
             print(f'  Table {table}: {count} records in MySQL')
