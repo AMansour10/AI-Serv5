@@ -1,7 +1,12 @@
 ﻿# AI Career Coach API
 
-## Endpoint
+## Primary Endpoint
 POST /api/career-coach
+
+## Backward-Compatible Endpoint (Deprecated)
+POST /api/career-coach/{employee_id}
+- Query parameter: `period` (optional)
+*(Deprecated: Preserved for backward compatibility. New integrations must use `POST /api/career-coach` with a JSON request body).*
 
 ## Input Data Type
 - employee_id: string
@@ -15,14 +20,13 @@ POST /api/career-coach
 }
 ```
 
-## Output Data Type
-- status: string
-- employee_id: string
-- strengths: array
-- development_areas: array
-- development_plan: array
-- follow_up: object
-- created_at: datetime
+## Error Handling
+Returns `HTTP 502 Bad Gateway` on AI provider or service failures with a safe reference ID:
+```json
+{
+  "detail": "AI service temporarily unavailable. Reference ID: 7b845890-410a-4286-bc94-469b76c9ad24"
+}
+```
 
 ## Output Shape
 ```json

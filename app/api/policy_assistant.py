@@ -1,5 +1,7 @@
 """API router for the AI HR Policy Assistant."""
 
+import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +13,8 @@ from app.schemas.policy_assistant import (
     PolicyQuestionRequest,
 )
 from app.services.policy_ai import PolicyAIService, PolicyAIServiceError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -46,9 +50,14 @@ def ask_policy_assistant(
             employee_id=request.employee_id,
             question=request.question,
         )
-    except PolicyAIServiceError as err:
-        # Return HTTP 502 without exposing stack traces, raw provider errors, or secrets
+    except PolicyAIServiceError:
+        error_id = str(uuid.uuid4())
+        logger.exception(
+            "Policy Assistant AI service error [Reference ID: %s]",
+            error_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(err),
+            detail=f"AI service temporarily unavailable. Reference ID: {error_id}",
         ) from None
+

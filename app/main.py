@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import app.models
 from app.api.career_coach import router as career_coach_router
 from app.api.policy_assistant import router as policy_assistant_router
+from app.db.migrations import migrate_is_approved_columns
 from app.db.session import Base, engine
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database schema at startup if database is available
+    # Initialize database schema and ensure idempotent column migrations at startup
     try:
         Base.metadata.create_all(bind=engine)
+        migrate_is_approved_columns(bind=engine, default_for_legacy=False)
     except (SQLAlchemyError, OSError) as exc:
         logger.warning("Database schema initialization warning: %s", exc)
     yield

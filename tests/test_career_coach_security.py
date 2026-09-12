@@ -160,7 +160,7 @@ def make_valid_mock_response(perf_id=1, theme_id=1):
                     {
                         "source_type": "evaluation_theme",
                         "source_id": theme_id,
-                        "claim": "Theme noted opportunity to lead peer training sessions"
+                        "claim": "Evaluation theme noted proactive security rigor and vulnerability mitigation"
                     }
                 ],
                 "priority": "medium"
@@ -283,6 +283,114 @@ def test_cross_employee_source_id_rejected(db, seed_security_data):
         service.generate_career_plan(db, employee_id="EMP-SEC-01", period="2026-Q3")
 
     assert "Evidence grounding failure" in str(exc_info.value)
+
+
+# ==============================================================================
+# P1-1: Fact-Grounded Evidence & Numeric Validation Tests
+# ==============================================================================
+
+def test_valid_source_id_with_fabricated_claim_rejected(db, seed_security_data):
+    """P1-1: Valid source ID + completely fabricated claim is rejected."""
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+
+    payload = json.loads(make_valid_mock_response(perf_id=1, theme_id=1))
+    # Source ID 1 is PerformanceRecord, but claim is completely fabricated unrelated text
+    payload["strengths"][0]["evidence"][0]["claim"] = "Organized international culinary banquet with ice sculptures"
+    mock_choice.message.content = json.dumps(payload)
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+
+    service = CareerCoachAIService(api_key="mock-key", client=mock_client)
+
+    with pytest.raises(CareerCoachAIServiceError) as exc_info:
+        service.generate_career_plan(db, employee_id="EMP-SEC-01", period="2026-Q3")
+
+    assert "Evidence grounding failure" in str(exc_info.value)
+    assert "cannot be deterministically grounded" in str(exc_info.value)
+
+
+def test_valid_source_id_with_contradictory_numeric_claim_rejected(db, seed_security_data):
+    """P1-1: Valid source ID + contradictory numeric claim is rejected."""
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+
+    payload = json.loads(make_valid_mock_response(perf_id=1, theme_id=1))
+    # Source ID 1 has score 92.0, task_completion_rate 95.0, goal_achievement 90.0, attendance 98.0
+    # Model alters score to 73.5%
+    payload["strengths"][0]["evidence"][0]["claim"] = "Overall performance score achieved 73.5%"
+    mock_choice.message.content = json.dumps(payload)
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+
+    service = CareerCoachAIService(api_key="mock-key", client=mock_client)
+
+    with pytest.raises(CareerCoachAIServiceError) as exc_info:
+        service.generate_career_plan(db, employee_id="EMP-SEC-01", period="2026-Q3")
+
+    assert "Evidence grounding failure" in str(exc_info.value)
+    assert "numeric value '73.5'" in str(exc_info.value)
+
+
+def test_source_type_mismatch_rejected(db, seed_security_data):
+    """P1-1: Source of one type cited as a different source type is rejected."""
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+
+    payload = json.loads(make_valid_mock_response(perf_id=1, theme_id=1))
+    # Cite Performance ID 1 with source_type="goal" but with non-existent goal ID
+    payload["strengths"][0]["evidence"][0]["source_type"] = "goal"
+    payload["strengths"][0]["evidence"][0]["source_id"] = 9999
+    payload["strengths"][0]["evidence"][0]["claim"] = "Consistently achieved high overall performance score of 92.0"
+    mock_choice.message.content = json.dumps(payload)
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+
+    service = CareerCoachAIService(api_key="mock-key", client=mock_client)
+
+    with pytest.raises(CareerCoachAIServiceError) as exc_info:
+        service.generate_career_plan(db, employee_id="EMP-SEC-01", period="2026-Q3")
+
+    assert "Evidence grounding failure" in str(exc_info.value)
+
+
+def test_multiple_evidence_items_all_independently_validated(db, seed_security_data):
+    """P1-1: Multiple evidence items are all independently validated; first invalid item fails."""
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+
+    payload = json.loads(make_valid_mock_response(perf_id=1, theme_id=1))
+    # Add a second evidence item to strengths that is invalid/invented
+    payload["strengths"][0]["evidence"].append({
+        "source_type": "performance",
+        "source_id": 1,
+        "claim": "Invented claim about astronomical telescope calibrations",
+    })
+    mock_choice.message.content = json.dumps(payload)
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+
+    service = CareerCoachAIService(api_key="mock-key", client=mock_client)
+
+    with pytest.raises(CareerCoachAIServiceError) as exc_info:
+        service.generate_career_plan(db, employee_id="EMP-SEC-01", period="2026-Q3")
+
+    assert "Evidence grounding failure" in str(exc_info.value)
+    assert "cannot be deterministically grounded" in str(exc_info.value)
+
+
+def test_valid_source_id_with_correct_fact_and_number_accepted(db, seed_security_data):
+    """P1-1: Valid source ID + matching fact + accurate number is accepted."""
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+
+    payload = json.loads(make_valid_mock_response(perf_id=1, theme_id=1))
+    # Accurate claim matching performance score 92.0
+    payload["strengths"][0]["evidence"][0]["claim"] = "Overall performance score achieved 92.0"
+    mock_choice.message.content = json.dumps(payload)
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+
+    service = CareerCoachAIService(api_key="mock-key", client=mock_client)
+    result = service.generate_career_plan(db, employee_id="EMP-SEC-01", period="2026-Q3")
+
+    assert result.status == "success"
+    assert result.strengths[0].evidence[0].claim == "Overall performance score achieved 92.0"
 
 
 # ==============================================================================

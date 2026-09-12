@@ -1,4 +1,4 @@
-﻿# Smart HR Management System - AI Career Coach Service
+# Smart HR Management System - AI Career Coach Service
 
 Backend service providing personalized, evidence-grounded employee development guidance using FastAPI, SQLAlchemy, and Groq LLMs (`openai/gpt-oss-120b`).
 
@@ -11,22 +11,26 @@ Backend service providing personalized, evidence-grounded employee development g
 Generates structured, evidence-based career development guidance for a target employee. Analyzes approved performance records, goals, skills, task outcomes, and evaluation themes.
 
 - **HTTP Method:** `POST`
-- **Path:** `/api/career-coach/{employee_id}`
+- **Primary Path:** `/api/career-coach`
+- **Backward-Compatible Path (Deprecated):** `/api/career-coach/{employee_id}`
 - **Content-Type:** `application/json`
 
 ---
 
-### Parameters
+### Request Body (`POST /api/career-coach`)
 
-#### 1. Path Parameters
-| Name | Type | Required | Description | Example |
+| Field | Type | Required | Description | Example |
 | :--- | :--- | :--- | :--- | :--- |
-| `employee_id` | `string` | **Yes** | Unique identifier of the target employee | `EMP-001` |
+| `employee_id` | `string` | **Yes** | Unique identifier of the target employee | `"EMP-001"` |
+| `period` | `string` | No | Target performance/review cycle period | `"2026-Q3"` |
 
-#### 2. Query Parameters
-| Name | Type | Required | Description | Example |
-| :--- | :--- | :--- | :--- | :--- |
-| `period` | `string` | No | Target performance/review cycle period (e.g., quarterly) | `2026-Q3` |
+Request payload example:
+```json
+{
+  "employee_id": "EMP-001",
+  "period": "2026-Q3"
+}
+```
 
 ---
 
@@ -44,11 +48,14 @@ Returned when the employee has sufficient approved data across all required cate
   - `strengths` (`array`): List of identified strengths grounded in evidence.
     - `title` (`string`): Strength title.
     - `description` (`string`): Detailed description of observed capability.
-    - `evidence` (`array[string]`): Contextual facts and metrics supporting the strength.
+    - `evidence` (`array[EvidenceItem]`): Grounded claims tied to approved source records:
+      - `source_type` (`string`): `"performance"` | `"goal"` | `"skill"` | `"task_outcome"` | `"evaluation_theme"`
+      - `source_id` (`integer`): ID of approved source record.
+      - `claim` (`string`): Factual, verified claim matching the source.
   - `development_areas` (`array`): Prioritized growth opportunities.
     - `title` (`string`): Development area title.
     - `description` (`string`): Specific growth gap.
-    - `evidence` (`array[string]`): Contextual metrics or feedback indicating the gap.
+    - `evidence` (`array[EvidenceItem]`): Grounded claims tied to approved source records.
     - `priority` (`string`): `"high"` | `"medium"` | `"low"`.
   - `development_plan` (`array`): Practical short-term improvement actions.
     - `action` (`string`): Practical action title.
@@ -74,10 +81,10 @@ Returned immediately if the employee profile is missing baseline data categories
 #### 3. Error Responses
 - **HTTP Status Code:** `502 Bad Gateway`
   - Triggered when Groq encounters network errors, timeouts, rate limits, or invalid model responses.
-  - Response body:
+  - Returns a client-safe response with a unique reference ID for log correlation:
     ```json
     {
-      "detail": "Groq API error encountered (RateLimitError). Unable to complete Career Coach generation."
+      "detail": "AI service temporarily unavailable. Reference ID: 7b845890-410a-4286-bc94-469b76c9ad24"
     }
     ```
   - *Safety Guarantee:* API keys, credentials, and internal stack traces are never leaked in error messages.
@@ -86,11 +93,16 @@ Returned immediately if the employee profile is missing baseline data categories
 
 ### Request & Response Examples
 
-#### Example 1: Request with Period
+#### Example 1: Primary Request Body
 ```http
-POST /api/career-coach/EMP-001?period=2026-Q3 HTTP/1.1
+POST /api/career-coach HTTP/1.1
 Host: localhost:8000
 Content-Type: application/json
+
+{
+  "employee_id": "EMP-001",
+  "period": "2026-Q3"
+}
 ```
 
 #### Example 1: Success Response
@@ -103,17 +115,23 @@ Content-Type: application/json
       "title": "High Performance Delivery",
       "description": "Consistently exceeds performance targets with top scores across key metrics.",
       "evidence": [
-        "Overall performance score of 93.5 in Q3 2026",
-        "Task completion rate of 96.0%",
-        "Goal achievement rate of 91.0%",
-        "Attendance rate of 99.0%"
+        {
+          "source_type": "performance",
+          "source_id": 1,
+          "claim": "Overall performance score of 93.5 in Q3 2026"
+        }
       ]
-    },
+    }
+  ],
     {
       "title": "Expertise in Python, FastAPI & Async Architecture",
       "description": "Demonstrates expert-level skill in modern backend technologies.",
       "evidence": [
-        "Architected core event-driven API gateway with 99.95% uptime"
+        {
+          "source_type": "skill",
+          "source_id": 2,
+          "claim": "Expert Python and FastAPI architectural skills"
+        }
       ]
     }
   ],
@@ -122,7 +140,11 @@ Content-Type: application/json
       "title": "Increase Knowledge Sharing Sessions",
       "description": "Conduct regular knowledge sharing to mentor junior peers.",
       "evidence": [
-        "Evaluation theme highlighted opportunity to run more knowledge sharing sessions for junior peers"
+        {
+          "source_type": "evaluation_theme",
+          "source_id": 1,
+          "claim": "Evaluation theme highlighted opportunity to mentor junior peers"
+        }
       ],
       "priority": "high"
     },
@@ -130,7 +152,11 @@ Content-Type: application/json
       "title": "Complete Redis Cluster Migration",
       "description": "Finalize migration of distributed caching to Redis Cluster.",
       "evidence": [
-        "Goal progress at 85% with deadline 2026-10-30"
+        {
+          "source_type": "goal",
+          "source_id": 1,
+          "claim": "Goal progress at 85% with deadline 2026-10-30"
+        }
       ],
       "priority": "medium"
     }
@@ -157,11 +183,15 @@ Content-Type: application/json
 }
 ```
 
-#### Example 2: Insufficient-Data Response
+#### Example 2: Insufficient-Data Request & Response
 ```http
-POST /api/career-coach/EMP-NEW HTTP/1.1
+POST /api/career-coach HTTP/1.1
 Host: localhost:8000
 Content-Type: application/json
+
+{
+  "employee_id": "EMP-NEW"
+}
 ```
 
 ```json

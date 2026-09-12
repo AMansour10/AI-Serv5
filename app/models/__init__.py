@@ -47,7 +47,7 @@ class PerformanceRecord(Base):
     task_completion_rate = Column(Float, nullable=False)     # percentage e.g., 92.5
     goal_achievement_rate = Column(Float, nullable=False)    # percentage e.g., 88.0
     attendance_rate = Column(Float, nullable=False)          # percentage e.g., 99.0
-    is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
+    is_approved = Column(Boolean, default=False, server_default="0", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     employee = relationship("Employee", back_populates="performance_records")
@@ -63,7 +63,7 @@ class Goal(Base):
     status = Column(String(50), default="in_progress", nullable=False)  # "in_progress", "completed", "delayed"
     deadline = Column(String(50), nullable=True)
     period = Column(String(20), nullable=True)               # e.g., "2026-Q3"
-    is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
+    is_approved = Column(Boolean, default=False, server_default="0", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     employee = relationship("Employee", back_populates="goals")
@@ -77,7 +77,7 @@ class Skill(Base):
     name = Column(String(100), nullable=False)
     level = Column(String(50), nullable=False)               # "Beginner", "Intermediate", "Advanced", "Expert"
     evidence = Column(Text, nullable=True)
-    is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
+    is_approved = Column(Boolean, default=False, server_default="0", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     employee = relationship("Employee", back_populates="skills")
@@ -93,7 +93,7 @@ class TaskOutcome(Base):
     outcome = Column(Text, nullable=True)
     completion_date = Column(String(50), nullable=True)
     period = Column(String(20), nullable=True)               # e.g., "2026-Q3"
-    is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
+    is_approved = Column(Boolean, default=False, server_default="0", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     employee = relationship("Employee", back_populates="task_outcomes")
@@ -108,7 +108,7 @@ class EvaluationTheme(Base):
     sentiment = Column(String(50), nullable=False)           # "positive", "neutral", "needs_improvement"
     evidence = Column(Text, nullable=False)
     period = Column(String(20), nullable=True)               # e.g., "2026-Q3"
-    is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
+    is_approved = Column(Boolean, default=False, server_default="0", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     employee = relationship("Employee", back_populates="evaluation_themes")

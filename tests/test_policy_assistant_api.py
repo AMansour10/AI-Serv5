@@ -146,7 +146,8 @@ def test_policy_ai_service_error_handling(client, mock_policy_ai_service):
 
     assert response.status_code == 502
     data = response.json()
-    assert "Provider rate limit reached" in data["detail"]
+    assert "AI service temporarily unavailable. Reference ID:" in data["detail"]
+    assert "Provider rate limit reached" not in data["detail"]
 
 
 # 4. Request validation failure (question too short)

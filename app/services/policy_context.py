@@ -1,4 +1,4 @@
-﻿"""Policy Context Builder service for the AI HR Policy Assistant.
+"""Policy Context Builder service for the AI HR Policy Assistant.
 
 Retrieves and prepares sanitized, approved company policies and permitted
 employee facts for policy question answering. Ensures strict employee data
@@ -93,7 +93,6 @@ class PolicyContextBuilder:
             "employee_id": employee.id,
             "first_name": _clean_str(employee.first_name, 100),
             "last_name": _clean_str(employee.last_name, 100),
-            "full_name": f"{_clean_str(employee.first_name, 100)} {_clean_str(employee.last_name, 100)}".strip(),
             "role_title": _clean_str(employee.role_title, 100),
             "department": _clean_str(employee.department, 100),
         }
@@ -211,6 +210,8 @@ class PolicyContextBuilder:
                 "title": policy_dict["title"],
                 "version": policy_dict["version"],
                 "category": policy_dict["category"],
+                "summary": policy_dict["summary"],
+                "content": policy_dict["content"],
             }
             approved_policy_sources[p.id] = grounding_meta
             approved_policy_codes[p.policy_code] = p.id

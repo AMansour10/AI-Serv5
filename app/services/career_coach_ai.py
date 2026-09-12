@@ -1,8 +1,10 @@
 import json
 import logging
 import os
+import random
 import re
 import time
+from typing import Any
 
 from groq import (
     APIConnectionError,
@@ -29,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_DEADLINE_SECONDS = 25.0
 MAX_RETRIES = 2
 INITIAL_BACKOFF_SECONDS = 0.5
 
@@ -53,9 +56,11 @@ STRICT COACHING & SAFETY RULES:
 1. Grounding: Use ONLY the supplied employee context.
 2. No Inventions: Never invent employee facts, achievements, weaknesses, skills, goals, or performance metrics.
 3. Evidence Grounding: Every strength and development area must reference explicit source records from the context via source_type and source_id.
-4. ABSOLUTE PROHIBITION ON EMPLOYMENT DECISIONS: You must NOT make, recommend, or suggest employment decisions. Never recommend hiring, firing, promotion, demotion, salary changes, pay raises, compensation, bonuses, disciplinary actions, termination, or employment eligibility.
-5. Permitted Scope: Development actions must be limited strictly to safe coaching, training, mentoring, learning, documentation, peer review, and skill development activities.
-6. Practical & Measurable: Development actions must be practical, measurable, and tied to the observed data.
+4. Factual Precision: In every evidence claim, you must accurately quote or reference the factual details from that specific referenced source record.
+5. Strict Numeric Accuracy: Never invent, alter, round, or hallucinate numbers, scores, percentages, counts, or dates. Any number in an evidence claim MUST appear in that referenced source record.
+6. ABSOLUTE PROHIBITION ON EMPLOYMENT DECISIONS: You must NOT make, recommend, or suggest employment decisions. Never recommend hiring, firing, promotion, demotion, salary changes, pay raises, compensation, bonuses, disciplinary actions, termination, or employment eligibility.
+7. Permitted Scope: Development actions must be limited strictly to safe coaching, training, mentoring, learning, documentation, peer review, and skill development activities.
+8. Practical & Measurable: Development actions must be practical, measurable, and tied to the observed data.
 
 Strict JSON Output: Output MUST be a single, valid JSON object strictly conforming to the following structure:
 {
@@ -102,6 +107,54 @@ Strict JSON Output: Output MUST be a single, valid JSON object strictly conformi
 }
 Do not include employee_id or created_at in the output. Do not wrap output in markdown fences (no ```json). Output raw JSON only.
 """
+
+
+def _normalize_num(val: Any) -> float | None:
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_numbers_from_text(text: str) -> list[float]:
+    """Extracts numeric values (integers, floats, percentages) from a text string.
+
+    Ignores dates formatted like 2026-Q3, but extracts standalone years/numbers.
+    """
+    cleaned = re.sub(r"\b\d{4}-Q[1-4]\b", " ", text, flags=re.IGNORECASE)
+    tokens = re.findall(r"(?<![a-zA-Z_])[-+]?(?:\d*\.\d+|\d+)(?![a-zA-Z_])", cleaned)
+    nums: list[float] = []
+    for t in tokens:
+        try:
+            nums.append(float(t))
+        except ValueError:
+            pass
+    return nums
+
+
+def _extract_source_numbers(source_data: dict[str, Any]) -> set[float]:
+    """Extracts all canonical numerical values present in the source record."""
+    source_nums: set[float] = set()
+    for k, v in source_data.items():
+        if k in ("id", "employee_id"):
+            continue
+        if isinstance(v, (int, float)):
+            source_nums.add(float(v))
+        elif isinstance(v, str):
+            extracted = _extract_numbers_from_text(v)
+            source_nums.update(extracted)
+    return source_nums
+
+
+def _extract_tokens(text: str) -> set[str]:
+    """Tokenizes text into lowercase words of length >= 3, skipping syntactic stopwords."""
+    stopwords = {
+        "the", "and", "for", "with", "that", "this", "from", "have", "has", "had",
+        "was", "were", "been", "are", "not", "but", "about", "into", "over",
+        "after", "good", "well", "some", "more", "most", "our", "their",
+    }
+    words = re.findall(r"\b[a-z]{3,}\b", text.lower())
+    return {w for w in words if w not in stopwords}
 
 
 class CareerCoachAIServiceError(Exception):
@@ -184,8 +237,11 @@ class CareerCoachAIService:
         approved_sources: dict[tuple[str, int], dict],
     ) -> None:
         """
-        P0-3: Deterministic evidence grounding validation.
-        Verifies every evidence item references an approved source belonging to the requested context.
+        P0-3 & P1-1: Deterministic evidence grounding and fact validation.
+        1. Verifies every evidence item references an approved source belonging to the requested context.
+        2. Strict source_type matching: ensures source record matches cited source_type.
+        3. Strict numeric validation: all numbers in the claim must exist in the referenced source.
+        4. Factual grounding: ensures claim shares verifiable semantic overlap with the referenced source.
         """
         all_evidence = []
         for s in output.strengths:
@@ -205,10 +261,73 @@ class CareerCoachAIService:
                     f"Evidence grounding failure: source reference ('{ev.source_type}', {ev.source_id}) does not exist in the approved context."
                 )
 
-    def _call_groq_with_resilience(self, user_prompt: str) -> str:
+            source_data = approved_sources[source_key]
+
+            # Rule 6: Type matching verification
+            actual_type = source_data.get("source_type")
+            if actual_type and actual_type != ev.source_type:
+                logger.warning(
+                    "Career coach output rejected: source type mismatch for ID %s (expected %s, got %s).",
+                    ev.source_id,
+                    actual_type,
+                    ev.source_type,
+                )
+                raise CareerCoachAIServiceError(
+                    f"Evidence grounding failure: source ID {ev.source_id} is of type '{actual_type}', but cited as '{ev.source_type}'."
+                )
+
+            # Rule 4: Strict numeric claim verification
+            claim_nums = _extract_numbers_from_text(ev.claim)
+            source_nums = _extract_source_numbers(source_data)
+
+            for c_num in claim_nums:
+                matched = any(abs(c_num - s_num) < 1e-4 for s_num in source_nums)
+                if not matched:
+                    logger.warning(
+                        "Career coach output rejected: numeric claim %s in evidence does not match source data (%s, %s).",
+                        c_num,
+                        ev.source_type,
+                        ev.source_id,
+                    )
+                    raise CareerCoachAIServiceError(
+                        f"Evidence grounding failure: numeric value '{c_num}' in claim '{ev.claim}' does not match source record ('{ev.source_type}', {ev.source_id})."
+                    )
+
+            # Rule 3 & 5: Fact grounding verification
+            source_text_parts = [
+                str(val) for key, val in source_data.items()
+                if key not in ("id", "employee_id", "source_type") and val is not None
+            ]
+            source_full_text = " ".join(source_text_parts)
+            source_tokens = _extract_tokens(source_full_text)
+            claim_tokens = _extract_tokens(ev.claim)
+
+            # Check overlap between claim tokens and source tokens (or claim numbers and source numbers)
+            token_overlap = claim_tokens.intersection(source_tokens)
+            has_numeric_match = len(claim_nums) > 0 and any(
+                any(abs(c_num - s_num) < 1e-4 for s_num in source_nums) for c_num in claim_nums
+            )
+
+            # A valid claim must have at least 1 significant overlapping keyword or matching numeric value
+            if not token_overlap and not has_numeric_match:
+                logger.warning(
+                    "Career coach output rejected: claim '%s' not grounded in source record (%s, %s).",
+                    ev.claim,
+                    ev.source_type,
+                    ev.source_id,
+                )
+                raise CareerCoachAIServiceError(
+                    f"Evidence grounding failure: claim '{ev.claim}' cannot be deterministically grounded in source record ('{ev.source_type}', {ev.source_id})."
+                )
+
+    def _call_groq_with_resilience(
+        self,
+        user_prompt: str,
+        deadline: float | None = None,
+    ) -> str:
         """
-        P1-3: Calls Groq API with application-level timeout and bounded exponential backoff retries
-        for transient provider failures (rate limits, timeouts, connection drops, 5xx).
+        P1-3: Calls Groq API with application-level timeout, bounded exponential backoff retries,
+        jitter, and request deadline enforcement for transient provider failures.
         Fails fast on non-transient errors.
         """
         client = self._get_client()
@@ -216,6 +335,14 @@ class CareerCoachAIService:
         last_exception = None
 
         for attempt in range(attempts):
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise CareerCoachAIServiceError("AI request deadline exceeded. Service temporarily unavailable.")
+                effective_timeout = min(self.timeout, max(0.5, remaining))
+            else:
+                effective_timeout = self.timeout
+
             try:
                 response = client.chat.completions.create(
                     model=self.model,
@@ -225,7 +352,7 @@ class CareerCoachAIService:
                     ],
                     temperature=0.2,
                     response_format={"type": "json_object"},
-                    timeout=self.timeout,
+                    timeout=effective_timeout,
                 )
                 raw_content = response.choices[0].message.content
                 if not raw_content:
@@ -242,7 +369,12 @@ class CareerCoachAIService:
                     attempts,
                 )
                 if attempt < self.max_retries:
-                    backoff = INITIAL_BACKOFF_SECONDS * (2**attempt)
+                    jitter = 0.8 + 0.4 * random.random()
+                    backoff = INITIAL_BACKOFF_SECONDS * (2**attempt) * jitter
+                    if deadline is not None and (time.monotonic() + backoff >= deadline):
+                        raise CareerCoachAIServiceError(
+                            "AI request deadline exceeded during retry backoff. Service temporarily unavailable."
+                        ) from None
                     time.sleep(backoff)
                     continue
 
@@ -263,7 +395,12 @@ class CareerCoachAIService:
                 status_code = getattr(e, "status_code", None)
                 if status_code and status_code in (500, 502, 503, 504) and attempt < self.max_retries:
                     last_exception = e
-                    backoff = INITIAL_BACKOFF_SECONDS * (2**attempt)
+                    jitter = 0.8 + 0.4 * random.random()
+                    backoff = INITIAL_BACKOFF_SECONDS * (2**attempt) * jitter
+                    if deadline is not None and (time.monotonic() + backoff >= deadline):
+                        raise CareerCoachAIServiceError(
+                            "AI request deadline exceeded during retry backoff. Service temporarily unavailable."
+                        ) from None
                     time.sleep(backoff)
                     continue
                 raise CareerCoachAIServiceError(
@@ -291,11 +428,14 @@ class CareerCoachAIService:
         - Enforces approved data only (P0-4).
         - Returns CareerCoachInsufficientDataResponse if data is incomplete.
         - Delimits untrusted records to resist prompt injection (P1-1).
-        - Calls Groq with application timeout and bounded exponential backoff retries (P1-3).
+        - Calls Groq with application timeout, bounded jittered backoff, and request deadline (P1-3, P1-7).
         - Authoritatively enforces requested employee_id (P0-1) and application created_at (P2-1).
         - Validates evidence grounding against approved sources (P0-3).
         - Enforces deterministic employment-decision safety policy (P0-2).
         """
+        total_deadline_budget = float(os.getenv("AI_REQUEST_DEADLINE_SECONDS", str(DEFAULT_DEADLINE_SECONDS)))
+        deadline = time.monotonic() + total_deadline_budget
+
         # 1. Gather sanitized approved context
         context_result = CareerCoachContextBuilder.build_context(
             db=db,
@@ -318,7 +458,11 @@ class CareerCoachAIService:
         approved_sources = context_result.get("approved_sources", {})
 
         # 3. P1-1: Construct delimited prompt with untrusted boundary
-        context_json = json.dumps(sanitized_context, indent=2)
+        context_json = (
+            json.dumps(sanitized_context, indent=2)
+            .replace("</EMPLOYEE_RECORDS>", "[ESCAPED_TAG]")
+            .replace("<EMPLOYEE_RECORDS>", "[ESCAPED_TAG]")
+        )
         user_prompt = (
             f"Target Employee Context:\n"
             f"<EMPLOYEE_RECORDS>\n"
@@ -327,8 +471,8 @@ class CareerCoachAIService:
             f"Analyze the approved records above and generate the career development plan adhering strictly to the JSON schema."
         )
 
-        # 4. Call Groq with resilience
-        raw_content = self._call_groq_with_resilience(user_prompt)
+        # 4. Call Groq with resilience and request deadline
+        raw_content = self._call_groq_with_resilience(user_prompt, deadline=deadline)
 
         # 5. Clean fences and parse JSON
         clean_content = raw_content.strip()
