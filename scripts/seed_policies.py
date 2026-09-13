@@ -1,4 +1,4 @@
-﻿"""Seed script for company policies in MySQL and SQLite."""
+"""Seed script for company policies in MySQL and SQLite."""
 
 import os
 import sys
@@ -13,7 +13,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from app.db.session import Base, SessionLocal, engine
-from app.models import CompanyPolicy
+from app.models import CompanyPolicy, Employee, PerformanceRecord
 
 DEMO_POLICIES = [
     {
@@ -154,5 +154,127 @@ def seed_company_policies() -> list[CompanyPolicy]:
         db.close()
 
 
-if __name__ == "__main__":
+# ===========================================================================
+# Demo Performance Insight Data (Development / Manual Testing Only)
+# ===========================================================================
+DEMO_PERF_INSIGHT_EMPLOYEE = {
+    "id": "EMP-PERF-DEMO",
+    "first_name": "Demo",
+    "last_name": "Performance",
+    "role_title": "Senior Systems Engineer",
+    "department": "Engineering",
+}
+
+DEMO_PERF_INSIGHT_RECORDS = [
+    {
+        "period": "2026-Q2",
+        "overall_score": 82.0,
+        "task_completion_rate": 85.0,
+        "goal_achievement_rate": 80.0,
+        "attendance_rate": 96.0,
+        "is_approved": True,
+    },
+    {
+        "period": "2026-Q3",
+        "overall_score": 90.0,
+        "task_completion_rate": 93.0,
+        "goal_achievement_rate": 88.0,
+        "attendance_rate": 94.0,
+        "is_approved": True,
+    },
+]
+
+
+def seed_performance_insight_demo() -> tuple[Employee, list[PerformanceRecord]]:
+    """Seeds dedicated demo employee and approved performance records for manual testing.
+
+    Idempotent:
+    - If employee exists, updates profile attributes; otherwise creates it.
+    - If records exist for (employee_id, period), updates metrics; otherwise creates them.
+    - Cleans up any duplicate records for the same period.
+    - Leaves all other employee and performance records untouched.
+    - This data is strictly for development, demo, and manual testing.
+    """
+    print("Ensuring database tables exist for Performance Insight demo...")
+    Base.metadata.create_all(bind=engine)
+
+    db = SessionLocal()
+    try:
+        emp_data = DEMO_PERF_INSIGHT_EMPLOYEE
+        employee = db.query(Employee).filter(Employee.id == emp_data["id"]).first()
+        if employee:
+            employee.first_name = emp_data["first_name"]
+            employee.last_name = emp_data["last_name"]
+            employee.role_title = emp_data["role_title"]
+            employee.department = emp_data["department"]
+            print(f"Updated demo employee: {employee.id} ({employee.first_name} {employee.last_name})")
+        else:
+            employee = Employee(
+                id=emp_data["id"],
+                first_name=emp_data["first_name"],
+                last_name=emp_data["last_name"],
+                role_title=emp_data["role_title"],
+                department=emp_data["department"],
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(employee)
+            print(f"Inserted demo employee: {employee.id} ({employee.first_name} {employee.last_name})")
+
+        db.flush()
+
+        seeded_records = []
+        for rec_data in DEMO_PERF_INSIGHT_RECORDS:
+            existing_records = (
+                db.query(PerformanceRecord)
+                .filter(
+                    PerformanceRecord.employee_id == emp_data["id"],
+                    PerformanceRecord.period == rec_data["period"],
+                )
+                .all()
+            )
+            if existing_records:
+                record = existing_records[0]
+                record.overall_score = rec_data["overall_score"]
+                record.task_completion_rate = rec_data["task_completion_rate"]
+                record.goal_achievement_rate = rec_data["goal_achievement_rate"]
+                record.attendance_rate = rec_data["attendance_rate"]
+                record.is_approved = rec_data["is_approved"]
+                for duplicate in existing_records[1:]:
+                    db.delete(duplicate)
+                seeded_records.append(record)
+                print(f"Updated demo performance record: {emp_data['id']} - {record.period}")
+            else:
+                record = PerformanceRecord(
+                    employee_id=emp_data["id"],
+                    period=rec_data["period"],
+                    overall_score=rec_data["overall_score"],
+                    task_completion_rate=rec_data["task_completion_rate"],
+                    goal_achievement_rate=rec_data["goal_achievement_rate"],
+                    attendance_rate=rec_data["attendance_rate"],
+                    is_approved=rec_data["is_approved"],
+                    created_at=datetime.now(timezone.utc),
+                )
+                db.add(record)
+                seeded_records.append(record)
+                print(f"Inserted demo performance record: {emp_data['id']} - {record.period}")
+
+        db.commit()
+        print(f"Successfully seeded demo performance data for {emp_data['id']} ({len(seeded_records)} records).")
+        return employee, seeded_records
+    except Exception as exc:
+        db.rollback()
+        print(f"Error seeding performance insight demo data: {exc}")
+        raise
+    finally:
+        db.close()
+
+
+def seed_all():
+    """Seeds both company policies and demo performance insight data."""
     seed_company_policies()
+    seed_performance_insight_demo()
+
+
+if __name__ == "__main__":
+    seed_all()
+

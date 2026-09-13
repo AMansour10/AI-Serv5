@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import app.models
 from app.api.career_coach import router as career_coach_router
+from app.api.performance_insight import router as performance_insight_router
 from app.api.policy_assistant import router as policy_assistant_router
 from app.db.migrations import migrate_is_approved_columns
 from app.db.session import Base, engine
@@ -44,6 +45,7 @@ app = FastAPI(
 
 # Register API Routers
 app.include_router(career_coach_router, prefix="/api")
+app.include_router(performance_insight_router, prefix="/api")
 app.include_router(policy_assistant_router, prefix="/api")
 
 

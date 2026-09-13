@@ -212,10 +212,94 @@ Content-Type: application/json
 
 ---
 
+## AI HR Policy Assistant API
+
+### Ask Policy Assistant
+
+Answers employee HR policy inquiries strictly based on approved active company policies and permitted employee profile facts. Supports persistent multi-turn conversations through conversation/session IDs.
+
+- **HTTP Method:** `POST`
+- **Path:** `/api/policy-assistant`
+- **Content-Type:** `application/json`
+
+### Request Body (`POST /api/policy-assistant`)
+
+| Field | Type | Required | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `employee_id` | `string` | **Yes** | Unique identifier of the target employee | `"EMP-001"` |
+| `question` | `string` | **Yes** | Policy question to be answered | `"What is the annual leave rollover limit?"` |
+| `session_id` | `string` | No | Optional existing chat session ID. If omitted, a new persistent session is created. | `"8f3b2a4c-5678-4321-9876-abcdef012345"` |
+
+#### Example 1: Starting a New Session (Omit `session_id`)
+```http
+POST /api/policy-assistant HTTP/1.1
+Host: localhost:8000
+Content-Type: application/json
+
+{
+  "employee_id": "EMP-SEC-ALICE",
+  "question": "What is the annual leave rollover limit?"
+}
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "status": "success",
+  "session_id": "8f3b2a4c-5678-4321-9876-abcdef012345",
+  "employee_id": "EMP-SEC-ALICE",
+  "answer": "Employees may carry forward up to five (5) unused annual leave days into the next calendar year.",
+  "policy_references": [
+    {
+      "policy_id": 1,
+      "policy_code": "POL-LEAVE-001",
+      "title": "Annual Leave & Time Off Policy",
+      "version": "1.0"
+    }
+  ],
+  "employee_facts_used": [],
+  "created_at": "2026-09-09T09:50:31Z"
+}
+```
+
+#### Example 2: Continuing an Existing Conversation (Provide `session_id`)
+```http
+POST /api/policy-assistant HTTP/1.1
+Host: localhost:8000
+Content-Type: application/json
+
+{
+  "employee_id": "EMP-SEC-ALICE",
+  "question": "What happens if I don't use them within the rollover period?",
+  "session_id": "8f3b2a4c-5678-4321-9876-abcdef012345"
+}
+```
+
+### Policy Assistant Error Handling
+- **`404 Not Found`**: Returned when the requested `session_id` does not exist.
+  ```json
+  { "detail": "Chat session not found." }
+  ```
+- **`403 Forbidden`**: Returned when an employee attempts to access a session belonging to another employee (strict tenant and identity isolation).
+  ```json
+  { "detail": "Access denied: session belongs to another employee." }
+  ```
+- **`502 Bad Gateway`**: Returned on transient or upstream AI provider errors without exposing internal database logs.
+
+### Conversation Memory & Token Optimization Architecture
+The Policy Assistant incorporates token-efficient multi-turn conversational memory:
+- **Recent-Message Window (Max 4 Messages)**: The AI loads and injects at most the last 4 prior messages (up to 2 user questions + 2 assistant answers) into `<RECENT_CONVERSATION_HISTORY>`.
+- **Rolling Conversation Summary**: When dialogue exceeds 4 messages, older history is compressed into a 1–2 sentence summary in `ChatSession.summary` and injected as `<CONVERSATION_SUMMARY>`. Summaries are updated in 4-message increments to avoid calling the LLM summarizer on every turn.
+- **Zero Full-History Forwarding**: Complete conversation history is **never** sent to the LLM. This prevents token explosion and guarantees bounded latency even over dozens of conversation turns.
+- **Follow-up Context**: Follow-up questions (e.g. *"Does that apply to me too?"*) use recent context during category classification and prompt generation to resolve pronouns without resending historical policy documents.
+- **Strict Grounding Isolation**: Past conversation turns are treated as untrusted context; all policy answers must be strictly and independently grounded in current active and approved company policies.
+
+---
+
 ## Development & Testing
 
 ### Running Tests
 All unit and integration tests can be executed via:
 ```powershell
-.venv\Scripts\pytest -v
+python -m pytest -v
 ```

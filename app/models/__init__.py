@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -35,6 +36,7 @@ class Employee(Base):
     skills = relationship("Skill", back_populates="employee", cascade="all, delete-orphan")
     task_outcomes = relationship("TaskOutcome", back_populates="employee", cascade="all, delete-orphan")
     evaluation_themes = relationship("EvaluationTheme", back_populates="employee", cascade="all, delete-orphan")
+    chat_sessions = relationship("ChatSession", back_populates="employee", cascade="all, delete-orphan")
 
 
 class PerformanceRecord(Base):
@@ -127,4 +129,36 @@ class CompanyPolicy(Base):
     is_active = Column(Boolean, default=True, server_default="1", nullable=False)
     is_approved = Column(Boolean, default=True, server_default="1", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    employee_id = Column(String(50), ForeignKey("employees.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=True)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    employee = relationship("Employee", back_populates="chat_sessions")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    session_id = Column(String(36), ForeignKey("chat_sessions.id"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    session = relationship("ChatSession", back_populates="messages")
+
 
