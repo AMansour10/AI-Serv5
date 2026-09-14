@@ -296,6 +296,90 @@ The Policy Assistant incorporates token-efficient multi-turn conversational memo
 
 ---
 
+## AI Evaluation Draft Assistant API
+
+### Generate Evaluation Draft
+
+Synthesizes approved employee records and optional manager observations into a structured, evidence-grounded performance evaluation draft.
+
+- **HTTP Method:** `POST`
+- **Path:** `/api/evaluation-draft`
+- **Content-Type:** `application/json`
+
+### Request Body (`POST /api/evaluation-draft`)
+
+| Field | Type | Required | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `employee_id` | `string` | **Yes** | Unique identifier of the target employee | `"EMP-001"` |
+| `period` | `string` | **Yes** | Evaluation review cycle period | `"2026-Q3"` |
+| `evaluation_scores` | `object` | No | Optional dictionary of numeric metric scores (0.0 to 100.0) | `{"overall": 92.0}` |
+| `manager_notes` | `string` | No | Optional manager feedback or observations to integrate | `"Strong leadership on platform migration."` |
+
+Request payload example:
+```json
+{
+  "employee_id": "EMP-001",
+  "period": "2026-Q3",
+  "evaluation_scores": {
+    "overall": 92.0,
+    "leadership": 88.0
+  },
+  "manager_notes": "Demonstrated exceptional technical leadership during the platform migration."
+}
+```
+
+### Success Response (`200 OK`)
+```json
+{
+  "status": "success",
+  "employee_id": "EMP-001",
+  "period": "2026-Q3",
+  "evaluation_narrative": "Alice delivered exemplary technical performance during Q3 2026, achieving a 94.0 overall score and successfully guiding the core cutover without service disruption.",
+  "strengths": [
+    {
+      "title": "High Delivery Quality",
+      "description": "Consistently delivered robust systems with zero errors during production migration.",
+      "evidence": [
+        {
+          "source_type": "performance",
+          "source_id": 1,
+          "claim": "Achieved overall score of 94.0 and 97.0% task completion in Q3 2026"
+        }
+      ]
+    }
+  ],
+  "improvement_areas": [
+    {
+      "title": "Knowledge Sharing",
+      "description": "Conduct regular architecture walkthroughs for junior peers.",
+      "evidence": [
+        {
+          "source_type": "evaluation_theme",
+          "source_id": 1,
+          "claim": "Feedback highlighted opportunity to run more knowledge sharing sessions"
+        }
+      ],
+      "priority": "medium"
+    }
+  ],
+  "entered_scores": {
+    "overall": 92.0,
+    "leadership": 88.0
+  },
+  "human_review_required": true,
+  "review_disclaimer": "This evaluation is an AI-generated draft intended solely to assist manager review. A human manager must review, edit, and approve this evaluation before any official use or persistence.",
+  "created_at": "2026-09-14T11:00:00Z"
+}
+```
+
+### Governance & Safety Controls
+- **Stateless Draft Guarantee**: The service is strictly stateless; it never writes or auto-submits records to the database. Human manager review and approval is mandatory before any future persistence.
+- **Prohibited Decisions**: Deterministic filters block the AI from recommending or executing promotions, demotions, salary adjustments, bonuses, termination, or disciplinary actions.
+- **Approved Evidence Only**: Only records with `is_approved == True` are included in the AI context. Unapproved drafts and cross-employee records are excluded.
+- **Fail-Closed Insufficient Data**: If an employee lacks baseline data, an `insufficient_data` response is returned immediately with zero LLM token cost.
+
+---
+
 ## Development & Testing
 
 ### Running Tests
@@ -303,3 +387,4 @@ All unit and integration tests can be executed via:
 ```powershell
 python -m pytest -v
 ```
+

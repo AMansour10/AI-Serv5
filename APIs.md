@@ -375,3 +375,117 @@ Returned when an employee does not exist, has zero approved performance records,
 5. **Fail-Closed Resilience**:
    - Insufficient data cases fail closed immediately without invoking the external LLM.
    - Provider errors, timeouts, malformed JSON, and grounding validation failures fail safely and return HTTP 502 with an opaque reference ID.
+
+---
+
+# AI Evaluation Draft Assistant API
+
+## Endpoint
+POST /api/evaluation-draft
+
+## Input Data Type
+- employee_id: string (required)
+- period: string (required, e.g. "2026-Q3")
+- evaluation_scores: object | null (optional dictionary of metric scores, e.g. `{"overall_score": 88.0, "leadership": 85.0}`)
+- manager_notes: string | null (optional manager observations or notes, max 3000 chars)
+
+## Input Shape
+```json
+{
+  "employee_id": "EMP-SEC-ALICE",
+  "period": "2026-Q3",
+  "evaluation_scores": {
+    "overall": 92.0,
+    "leadership": 88.0
+  },
+  "manager_notes": "Demonstrated exceptional technical leadership during the platform migration."
+}
+```
+
+## Success Response (`200 OK`)
+```json
+{
+  "status": "success",
+  "employee_id": "EMP-SEC-ALICE",
+  "period": "2026-Q3",
+  "evaluation_narrative": "Alice delivered exemplary technical performance during Q3 2026, achieving a 94.0 overall score and successfully guiding the core cutover without service disruption. Her systems architecture work and mentorship of junior engineers represent standout contributions.",
+  "strengths": [
+    {
+      "title": "High Delivery Quality and Architecture Execution",
+      "description": "Consistently delivered robust systems with zero errors during production migration.",
+      "evidence": [
+        {
+          "source_type": "performance",
+          "source_id": 1,
+          "claim": "Achieved overall score of 94.0 and 97.0% task completion in Q3 2026"
+        }
+      ]
+    }
+  ],
+  "improvement_areas": [
+    {
+      "title": "Knowledge Sharing and Architecture Walkthroughs",
+      "description": "Conduct monthly architecture review sessions for junior engineers to scale domain expertise.",
+      "evidence": [
+        {
+          "source_type": "evaluation_theme",
+          "source_id": 1,
+          "claim": "Feedback highlighted opportunity to run more knowledge sharing sessions"
+        }
+      ],
+      "priority": "medium"
+    }
+  ],
+  "entered_scores": {
+    "overall": 92.0,
+    "leadership": 88.0
+  },
+  "human_review_required": true,
+  "review_disclaimer": "This evaluation is an AI-generated draft intended solely to assist manager review. A human manager must review, edit, and approve this evaluation before any official use or persistence.",
+  "created_at": "2026-09-14T11:00:00Z"
+}
+```
+
+## Insufficient Data Output (`200 OK`)
+Returned immediately when the target employee has zero approved records or lacks the minimum baseline data categories (at least one approved performance record and at least one goal, task outcome, or evaluation theme):
+```json
+{
+  "status": "insufficient_data",
+  "employee_id": "EMP-EMPTY",
+  "period": "2026-Q3",
+  "missing_categories": [
+    "performance",
+    "goals",
+    "skills",
+    "task_outcomes",
+    "evaluation_themes"
+  ],
+  "message": "Not enough approved employee data to generate a reliable evaluation draft.",
+  "human_review_required": false,
+  "created_at": "2026-09-14T11:00:00Z"
+}
+```
+
+## Error Handling
+- **`422 Unprocessable Entity`**: Returned when required fields (`employee_id`, `period`) are missing, invalid, or scores are out of bounds (0.0 to 100.0).
+- **`502 Bad Gateway`**: Returned on AI provider failures, timeouts, or ungrounded model outputs, with an opaque reference ID:
+```json
+{
+  "detail": "AI service temporarily unavailable. Reference ID: 3a2c5b98-e04f-4d3a-86c2-123456789abc"
+}
+```
+
+## Governance & Safety Guarantees
+1. **Stateless Draft Guarantee (No Automatic Persistence)**:
+   - The endpoint generates an in-memory draft evaluation returned directly to the caller.
+   - It **never** writes or submits permanent records to `performance_records`, `evaluation_themes`, or any database table.
+   - Human manager review and explicit approval is strictly required before any future persistence.
+2. **Absolute Prohibition on Automated Employment Decisions**:
+   - The AI assistant is strictly prohibited by deterministic safety filtering from recommending hiring, firing, promotion, demotion, salary/wage adjustments, bonuses, compensation, disciplinary actions, or performance improvement plans (PIPs).
+3. **Approved-Only Evidence Grounding**:
+   - The context builder queries only approved records (`is_approved == True`).
+   - Every cited strength or improvement area must reference explicit source records by `source_type` and `source_id`.
+   - Numeric claims are cross-checked against source records to eliminate hallucinations.
+4. **Prompt Injection Protection**:
+   - All untrusted input fields and context tags are sanitized to prevent delimiter breakout or prompt override attempts.
+
