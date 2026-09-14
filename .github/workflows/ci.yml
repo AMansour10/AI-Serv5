@@ -40,6 +40,12 @@ jobs:
         run: |
           ruff check app scripts tests
 
+      - name: Seed MySQL Test Database
+        env:
+          DATABASE_URL: mysql+pymysql://root:rootpassword@127.0.0.1:3306/hr_system?charset=utf8mb4
+        run: |
+          python scripts/seed_policies.py
+
       - name: Run Tests
         env:
           DATABASE_URL: mysql+pymysql://root:rootpassword@127.0.0.1:3306/hr_system?charset=utf8mb4
