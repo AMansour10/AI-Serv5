@@ -157,6 +157,7 @@ class ChatMessage(Base):
     session_id = Column(String(36), ForeignKey("chat_sessions.id"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # "user" or "assistant"
     content = Column(Text, nullable=False)
+    embedding = Column(Text, nullable=True)  # JSON-serialized vector embedding
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     session = relationship("ChatSession", back_populates="messages")

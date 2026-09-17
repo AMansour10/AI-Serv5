@@ -97,30 +97,20 @@ class PolicyContextBuilder:
             "department": _clean_str(employee.department, 100),
         }
 
-        # 2. Query ONLY active AND approved policies
-        policy_query = db.query(CompanyPolicy).filter(
-            CompanyPolicy.is_active.is_(True),
-            CompanyPolicy.is_approved.is_(True),
+        # 2. Query ONLY active AND approved policies (no category exclusion)
+        candidate_policies = (
+            db.query(CompanyPolicy)
+            .filter(
+                CompanyPolicy.is_active.is_(True),
+                CompanyPolicy.is_approved.is_(True),
+            )
+            .all()
         )
 
-        # Apply optional category filter if supplied
-        if category and category.strip():
-            cat_cleaned = category.strip().lower()
-            policy_query = policy_query.filter(
-                CompanyPolicy.category.ilike(f"%{cat_cleaned}%")
-            )
-
-        candidate_policies = policy_query.all()
-
         if not candidate_policies:
-            reason = (
-                f"No approved active policies found matching category '{category}'."
-                if category
-                else "No approved active policies exist in the system."
-            )
             return {
                 "has_matching_policies": False,
-                "unsupported_reason": reason,
+                "unsupported_reason": "No approved active policies exist in the system.",
                 "employee_id": employee.id,
                 "employee_found": True,
                 "employee_facts": employee_facts,
@@ -156,19 +146,14 @@ class PolicyContextBuilder:
             if p.policy_code.lower() in q_lower:
                 score += 15
 
-            # If an explicit category was requested and matches, add bonus
+            # If an explicit category was requested/detected and matches, add relevance boost
             if category and category.strip().lower() in p.category.lower():
                 score += 10
 
             scored_candidates.append((score, p))
 
-        # Filter out candidates with zero score unless an explicit matching category was selected
-        if category and category.strip():
-            relevant_candidates = [
-                (score, p) for score, p in scored_candidates if score > 0 or len(candidate_policies) == 1
-            ]
-        else:
-            relevant_candidates = [(score, p) for score, p in scored_candidates if score > 0]
+        # Filter out candidates with zero relevance score
+        relevant_candidates = [(score, p) for score, p in scored_candidates if score > 0]
 
         if not relevant_candidates:
             return {

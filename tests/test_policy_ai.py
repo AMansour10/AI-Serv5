@@ -14,7 +14,11 @@ from app.schemas.policy_assistant import (
     PolicyAnswerResponse,
     PolicyFallbackResponse,
 )
-from app.services.policy_ai import PolicyAIService, PolicyAIServiceError
+from app.services.policy_ai import (
+    PolicyAIService,
+    PolicyAIServiceError,
+    PolicyGroundingError,
+)
 
 TEST_DB_URL = "sqlite:///:memory:"
 test_engine = create_engine(
@@ -302,13 +306,13 @@ def test_hallucinated_policy_reference_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "Policy grounding failure" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 # 5. Mismatched policy ID and code rejected
@@ -345,13 +349,13 @@ def test_mismatched_policy_id_and_code_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "does not match policy ID" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 # 6. Prompt injection attempt in inquiry is delimited and handled safely
@@ -590,13 +594,13 @@ def test_valid_policy_id_with_wrong_title_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "does not match approved title" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_valid_policy_id_with_wrong_version_rejected(db_session, seed_data):
@@ -619,13 +623,13 @@ def test_valid_policy_id_with_wrong_version_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "does not match approved version" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_valid_policy_id_with_contradictory_numeric_value_rejected(db_session, seed_data):
@@ -648,13 +652,13 @@ def test_valid_policy_id_with_contradictory_numeric_value_rejected(db_session, s
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "numeric value '50.0' in answer is not supported" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_valid_policy_id_with_fabricated_answer_rejected(db_session, seed_data):
@@ -677,13 +681,13 @@ def test_valid_policy_id_with_fabricated_answer_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "cannot be deterministically grounded in referenced policy" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_answer_grounded_in_policy_a_citing_policy_b_rejected(db_session, seed_data):
@@ -707,13 +711,13 @@ def test_answer_grounded_in_policy_a_citing_policy_b_rejected(db_session, seed_d
     mock_client = _mock_groq_response(mock_json, category="Leave & Attendance")
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "cannot be deterministically grounded in referenced policy 'POL-LEAVE-001'" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_fabricated_employee_facts_used_rejected(db_session, seed_data):
@@ -736,13 +740,13 @@ def test_fabricated_employee_facts_used_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the leave policy?",
-        )
-    assert "employee fact 'Executive VIP Status: Tier 5 Billionaire' is not supported" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_multiple_policy_references_independently_validated(db_session, seed_data):
@@ -779,13 +783,13 @@ def test_multiple_policy_references_independently_validated(db_session, seed_dat
     mock_client = _mock_groq_response(mock_json, category="Leave & Attendance")
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is the policy?",
-        )
-    assert "cannot be deterministically grounded in referenced policy 'POL-REMOTE-001'" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is the policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_correct_policy_and_grounded_answer_accepted(db_session, seed_data):
@@ -989,13 +993,13 @@ def test_full_name_rejected_when_not_in_permitted_context(db_session, seed_data)
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is my leave policy?",
-        )
-    assert "employee fact 'full_name' is not supported by permitted employee context" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is my leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_fabricated_employee_fact_field_rejected(db_session, seed_data):
@@ -1018,13 +1022,13 @@ def test_fabricated_employee_fact_field_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",
-            question="What is my leave policy?",
-        )
-    assert "employee fact 'clearance_level' is not supported by permitted employee context" in str(exc.value)
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",
+        question="What is my leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
 
 
 def test_contradictory_employee_fact_value_rejected(db_session, seed_data):
@@ -1047,13 +1051,72 @@ def test_contradictory_employee_fact_value_rejected(db_session, seed_data):
     mock_client = _mock_groq_response(mock_json)
     service = PolicyAIService(api_key="test_key", client=mock_client)
 
-    with pytest.raises(PolicyAIServiceError) as exc:
-        service.answer_policy_question(
-            db=db_session,
-            employee_id="EMP-ALICE",  # Alice is in Engineering, NOT Marketing
-            question="What is my leave policy?",
+    response = service.answer_policy_question(
+        db=db_session,
+        employee_id="EMP-ALICE",  # Alice is in Engineering, NOT Marketing
+        question="What is my leave policy?",
+    )
+    assert response.status == "unsupported"
+    assert isinstance(response, PolicyFallbackResponse)
+
+
+def test_validate_policy_grounding_raises_policy_grounding_error():
+    """Verifies that _validate_policy_grounding strictly raises PolicyGroundingError on ungrounded outputs."""
+    service = PolicyAIService(api_key="test_key")
+    from app.schemas.policy_assistant import PolicyAIModelSuccessOutput, PolicyReference
+
+    # 1. Unapproved policy reference ID
+    output_unapproved_id = PolicyAIModelSuccessOutput(
+        status="success",
+        answer="You can take leave.",
+        policy_references=[
+            PolicyReference(
+                policy_id=999,
+                policy_code="POL-FAKE-999",
+                title="Fake Policy",
+                version="1.0",
+            )
+        ],
+        employee_facts_used=[],
+    )
+    with pytest.raises(PolicyGroundingError, match="referenced policy ID 999 does not exist in the approved context"):
+        service._validate_policy_grounding(
+            output=output_unapproved_id,
+            approved_policy_sources={},
+            approved_policy_codes={},
         )
-    assert "employee fact 'Department: Marketing' is not supported by permitted employee context" in str(exc.value)
+
+    # 2. Unsupported numeric value
+    approved_sources = {
+        1: {
+            "policy_id": 1,
+            "policy_code": "POL-LEAVE-001",
+            "title": "Annual Leave Policy",
+            "version": "1.0",
+            "summary": "Leave rollover limit is 5 days.",
+            "content": "Employees may roll over 5 days.",
+        }
+    }
+    approved_codes = {"POL-LEAVE-001": 1}
+    output_bad_num = PolicyAIModelSuccessOutput(
+        status="success",
+        answer="You can roll over 50 days of annual leave.",
+        policy_references=[
+            PolicyReference(
+                policy_id=1,
+                policy_code="POL-LEAVE-001",
+                title="Annual Leave Policy",
+                version="1.0",
+            )
+        ],
+        employee_facts_used=[],
+    )
+    with pytest.raises(PolicyGroundingError, match="numeric value '50.0' in answer is not supported"):
+        service._validate_policy_grounding(
+            output=output_bad_num,
+            approved_policy_sources=approved_sources,
+            approved_policy_codes=approved_codes,
+        )
 
 
 

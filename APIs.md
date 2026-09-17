@@ -1,12 +1,8 @@
-# AI Career Coach API
+﻿# AI Career Coach API
 
 ## Primary Endpoint
 POST /api/career-coach
 
-## Backward-Compatible Endpoint (Deprecated)
-POST /api/career-coach/{employee_id}
-- Query parameter: `period` (optional)
-*(Deprecated: Preserved for backward compatibility. New integrations must use `POST /api/career-coach` with a JSON request body).*
 
 ## Input Data Type
 - employee_id: string
@@ -173,22 +169,45 @@ POST /api/policy-assistant
 
 ---
 
-## Conversation Memory & Token Optimization Architecture
+## Hybrid Memory & Token Optimization Architecture
 
-The AI HR Policy Assistant maintains multi-turn conversation memory efficiently without unbounded token growth:
+The AI HR Policy Assistant maintains multi-turn conversation memory efficiently using a production-grade **Hybrid Memory Architecture** that balances dialogue continuity, old-topic recall, strict grounding, and bounded token expenditure:
 
-1. **Recent-Message Window (Max 4 Messages)**:
-   - For an ongoing session, only the last **4 prior messages** (up to 2 user + 2 assistant turns) are directly injected into the prompt inside `<RECENT_CONVERSATION_HISTORY>`.
-   - **Full conversation history is NEVER forwarded to Groq**, guaranteeing predictable latency and low token costs regardless of how long the chat runs.
+1. **Short-Term Memory (Budget-Based Sliding Window)**:
+   - Replaces fixed message counts with a configurable character/token budget (`recent_messages_char_budget = 2500` chars, approx. 625 tokens).
+   - Greedily retains the most recent conversation turns that fit within the configured budget in `<RECENT_CONVERSATION_HISTORY>`.
+   - Older turns that exceed the budget overflow into candidate pools for summary and semantic retrieval.
 
 2. **Rolling Conversation Summary**:
-   - When a conversation exceeds the 4-message window, older messages are compressed into a compact, 1–2 sentence summary (maximum 60 words) stored in `ChatSession.summary`.
-   - The summary is injected into the prompt inside `<CONVERSATION_SUMMARY>`.
-   - To minimize token usage and avoid unnecessary API calls, the summary is updated incrementally in 4-message batches rather than on every request.
+   - For conversations with older messages exceeding the short-term budget, a compact, bounded summary (maximum 60 words / 300 characters) is maintained in `ChatSession.summary`.
+   - Included in `<CONVERSATION_SUMMARY>` to provide high-level historical context.
+   - Summarization triggers incrementally in batches rather than on every request, with safe fallbacks preserving previous summaries if LLM summarization fails.
 
-3. **Follow-Up Understanding**:
-   - Both category classification and the policy answer prompt receive the recent conversation context to resolve pronouns and follow-up inquiries (e.g. *"Does that apply to me too?"*).
-   - **Grounding Safety**: Past conversation turns are treated strictly as inert context. All policy claims and numeric values must still be independently grounded in currently approved company policies.
+3. **Semantic Memory / Retrieval Over Older Messages**:
+   - When an employee refers to topics discussed earlier in a long session (e.g. 10 or 100 turns ago outside the recent window), semantic retrieval searches older messages in the session using subword vector embeddings and cosine similarity.
+   - Matches exceeding `similarity_threshold = 0.35` are retrieved into `<RELEVANT_CONVERSATION_MEMORIES>`, capped at `max_retrieved_memories = 3` and `retrieved_memory_char_budget = 1500` chars.
+   - Irrelevant older messages are automatically excluded.
+
+4. **Context Hierarchy & Assembly Order**:
+   The prompt structure strictly isolates untrusted conversational history and establishes clear authority:
+   ```
+   SYSTEM SAFETY DIRECTIVES
+   + <COMPANY_POLICIES> (Sole Authoritative Source of Truth)
+   + <EMPLOYEE_FACTS> (Permitted Profile Facts)
+   + <RELEVANT_CONVERSATION_MEMORIES> (Untrusted historical context)
+   + <CONVERSATION_SUMMARY>
+   + <RECENT_CONVERSATION_HISTORY>
+   + <EMPLOYEE_QUESTION>
+   ```
+
+5. **Policy Precedence & Grounding Rule**:
+   - **Approved Policies Always Win**: Retrieved historical conversation is strictly contextual dialogue assistance. It is **never** authoritative evidence.
+   - If retrieved memory conflicts with the current approved `CompanyPolicy` (e.g., past message claimed 25 rollover days while policy permits 5 days), the approved policy strictly supersedes memory.
+   - Output grounding validators verify that all answer claims and numeric figures match active, approved policies.
+
+6. **Prompt-Injection Defense & Delimiter Isolation**:
+   - All conversation turns, retrieved memories, and user queries are treated as untrusted text.
+   - Boundary tags (including `<RELEVANT_CONVERSATION_MEMORIES>`, `<COMPANY_POLICIES>`, `<EMPLOYEE_FACTS>`) are escaped deterministically to neutralize adversarial override attempts.
 
 ---
 

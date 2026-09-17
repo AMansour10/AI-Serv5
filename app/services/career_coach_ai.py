@@ -37,10 +37,19 @@ INITIAL_BACKOFF_SECONDS = 0.5
 
 # Prohibited Employment Decisions & Compensation Keywords (P0-2)
 PROHIBITED_PATTERNS = [
-    re.compile(r"\b(hire|hiring|fire|firing|terminat(e|ed|ing|ion)|dismiss(al)?|layoff|laid off|severance)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(hire|hiring|fire|firing|terminat(e|ed|ing|ion)|dismiss(al)?|layoff|laid off|severance)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\b(promot(e|ed|ing|ion)|demot(e|ed|ing|ion))\b", re.IGNORECASE),
-    re.compile(r"\b(salary|salaries|wage|wages|compensation|bonus|bonuses|pay raise|raise pay|pay cut|stock option|equity grant)\b", re.IGNORECASE),
-    re.compile(r"\b(disciplinary|suspension|probation period|performance improvement plan|\bPIP\b)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(salary|salaries|wage|wages|compensation|bonus|bonuses|pay raise|raise pay|pay cut|stock option|equity grant)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(disciplinary|suspension|probation period|performance improvement plan|\bPIP\b)\b",
+        re.IGNORECASE,
+    ),
 ]
 
 GROQ_SYSTEM_PROMPT = """You are an expert AI Employee Career Development Coach in a Smart HR Management System.
@@ -119,9 +128,18 @@ def _normalize_num(val: Any) -> float | None:
 def _extract_numbers_from_text(text: str) -> list[float]:
     """Extracts numeric values (integers, floats, percentages) from a text string.
 
-    Ignores dates formatted like 2026-Q3, but extracts standalone years/numbers.
+    Ignores calendar years, quarter/year references (e.g., 'Q3 2026', 'Q4 2026',
+    '2026-Q3'), and standard date formats so they are not treated as performance metrics.
     """
-    cleaned = re.sub(r"\b\d{4}-Q[1-4]\b", " ", text, flags=re.IGNORECASE)
+    # 1. Ignore quarter and year references (e.g., '2026-Q3', '2026 Q3', 'Q3 2026', 'Q4 2026', 'Q3 of 2026')
+    cleaned = re.sub(r"\b\d{4}[-_/ ]?Q[1-4]\b", " ", text, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\bQ[1-4](?:[-_/ ]|\s+of\s+)?\d{4}\b", " ", cleaned, flags=re.IGNORECASE
+    )
+    # 2. Ignore calendar dates (e.g., '2026-08-20', '2026-10-30', '2026-10')
+    cleaned = re.sub(r"\b\d{4}[-/]\d{1,2}(?:[-/]\d{1,2})?\b", " ", cleaned)
+    # 3. Ignore standalone calendar years (1900-2099)
+    cleaned = re.sub(r"\b(?:19|20)\d{2}\b", " ", cleaned)
     tokens = re.findall(r"(?<![a-zA-Z_])[-+]?(?:\d*\.\d+|\d+)(?![a-zA-Z_])", cleaned)
     nums: list[float] = []
     for t in tokens:
@@ -149,9 +167,33 @@ def _extract_source_numbers(source_data: dict[str, Any]) -> set[float]:
 def _extract_tokens(text: str) -> set[str]:
     """Tokenizes text into lowercase words of length >= 3, skipping syntactic stopwords."""
     stopwords = {
-        "the", "and", "for", "with", "that", "this", "from", "have", "has", "had",
-        "was", "were", "been", "are", "not", "but", "about", "into", "over",
-        "after", "good", "well", "some", "more", "most", "our", "their",
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "have",
+        "has",
+        "had",
+        "was",
+        "were",
+        "been",
+        "are",
+        "not",
+        "but",
+        "about",
+        "into",
+        "over",
+        "after",
+        "good",
+        "well",
+        "some",
+        "more",
+        "most",
+        "our",
+        "their",
     }
     words = re.findall(r"\b[a-z]{3,}\b", text.lower())
     return {w for w in words if w not in stopwords}
@@ -178,8 +220,14 @@ class CareerCoachAIService:
             configured_model = model
         else:
             configured_model = os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)
-        if not configured_model or not isinstance(configured_model, str) or not configured_model.strip():
-            raise CareerCoachAIServiceError("GROQ_MODEL configuration is missing or invalid.")
+        if (
+            not configured_model
+            or not isinstance(configured_model, str)
+            or not configured_model.strip()
+        ):
+            raise CareerCoachAIServiceError(
+                "GROQ_MODEL configuration is missing or invalid."
+            )
         self.model = configured_model.strip()
 
         self.base_url = base_url or os.getenv("GROQ_BASE_URL", "https://api.groq.com")
@@ -215,7 +263,9 @@ class CareerCoachAIService:
                 text_blobs.append(ev.claim)
 
         for dp in output.development_plan:
-            text_blobs.extend([dp.action, dp.reason, dp.measurable_target, dp.suggested_timeline])
+            text_blobs.extend(
+                [dp.action, dp.reason, dp.measurable_target, dp.suggested_timeline]
+            )
 
         text_blobs.extend([output.follow_up.checkpoint, output.follow_up.review_focus])
 
@@ -295,7 +345,8 @@ class CareerCoachAIService:
 
             # Rule 3 & 5: Fact grounding verification
             source_text_parts = [
-                str(val) for key, val in source_data.items()
+                str(val)
+                for key, val in source_data.items()
                 if key not in ("id", "employee_id", "source_type") and val is not None
             ]
             source_full_text = " ".join(source_text_parts)
@@ -305,7 +356,8 @@ class CareerCoachAIService:
             # Check overlap between claim tokens and source tokens (or claim numbers and source numbers)
             token_overlap = claim_tokens.intersection(source_tokens)
             has_numeric_match = len(claim_nums) > 0 and any(
-                any(abs(c_num - s_num) < 1e-4 for s_num in source_nums) for c_num in claim_nums
+                any(abs(c_num - s_num) < 1e-4 for s_num in source_nums)
+                for c_num in claim_nums
             )
 
             # A valid claim must have at least 1 significant overlapping keyword or matching numeric value
@@ -338,7 +390,9 @@ class CareerCoachAIService:
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise CareerCoachAIServiceError("AI request deadline exceeded. Service temporarily unavailable.")
+                    raise CareerCoachAIServiceError(
+                        "AI request deadline exceeded. Service temporarily unavailable."
+                    )
                 effective_timeout = min(self.timeout, max(0.5, remaining))
             else:
                 effective_timeout = self.timeout
@@ -371,7 +425,9 @@ class CareerCoachAIService:
                 if attempt < self.max_retries:
                     jitter = 0.8 + 0.4 * random.random()
                     backoff = INITIAL_BACKOFF_SECONDS * (2**attempt) * jitter
-                    if deadline is not None and (time.monotonic() + backoff >= deadline):
+                    if deadline is not None and (
+                        time.monotonic() + backoff >= deadline
+                    ):
                         raise CareerCoachAIServiceError(
                             "AI request deadline exceeded during retry backoff. Service temporarily unavailable."
                         ) from None
@@ -393,11 +449,17 @@ class CareerCoachAIService:
             except APIError as e:
                 # Check for transient 5xx provider errors
                 status_code = getattr(e, "status_code", None)
-                if status_code and status_code in (500, 502, 503, 504) and attempt < self.max_retries:
+                if (
+                    status_code
+                    and status_code in (500, 502, 503, 504)
+                    and attempt < self.max_retries
+                ):
                     last_exception = e
                     jitter = 0.8 + 0.4 * random.random()
                     backoff = INITIAL_BACKOFF_SECONDS * (2**attempt) * jitter
-                    if deadline is not None and (time.monotonic() + backoff >= deadline):
+                    if deadline is not None and (
+                        time.monotonic() + backoff >= deadline
+                    ):
                         raise CareerCoachAIServiceError(
                             "AI request deadline exceeded during retry backoff. Service temporarily unavailable."
                         ) from None
@@ -433,7 +495,9 @@ class CareerCoachAIService:
         - Validates evidence grounding against approved sources (P0-3).
         - Enforces deterministic employment-decision safety policy (P0-2).
         """
-        total_deadline_budget = float(os.getenv("AI_REQUEST_DEADLINE_SECONDS", str(DEFAULT_DEADLINE_SECONDS)))
+        total_deadline_budget = float(
+            os.getenv("AI_REQUEST_DEADLINE_SECONDS", str(DEFAULT_DEADLINE_SECONDS))
+        )
         deadline = time.monotonic() + total_deadline_budget
 
         # 1. Gather sanitized approved context

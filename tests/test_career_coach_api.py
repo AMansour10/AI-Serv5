@@ -288,84 +288,13 @@ def test_career_coach_openapi_contract():
     assert "period" in body_schema["properties"]
     assert body_schema["required"] == ["employee_id"]
 
-    # Verify deprecated legacy endpoint exists in OpenAPI
-    assert "/api/career-coach/{employee_id}" in openapi_schema["paths"]
-    legacy_spec = openapi_schema["paths"]["/api/career-coach/{employee_id}"]["post"]
-    assert legacy_spec.get("deprecated") is True
+    # Verify deprecated legacy endpoint does not exist in OpenAPI
+    assert "/api/career-coach/{employee_id}" not in openapi_schema["paths"]
 
 
-# 7. Backward-compatible deprecated path-based endpoint works as expected
-def test_career_coach_legacy_endpoint_compatibility(client, seed_employee):
-    mock_ai_service = MagicMock(spec=CareerCoachAIService)
-    mock_ai_service.generate_career_plan.return_value = CareerCoachSuccessResponse(
-        status="success",
-        employee_id="EMP-API-001",
-        strengths=[
-            StrengthItem(
-                title="System Design",
-                description="Expertise in distributed architecture",
-                evidence=[
-                    EvidenceItem(
-                        source_type="skill",
-                        source_id=1,
-                        claim="Built core distributed pipeline",
-                    )
-                ],
-            )
-        ],
-        development_areas=[
-            DevelopmentAreaItem(
-                title="Mentoring",
-                description="Mentor junior peers",
-                evidence=[
-                    EvidenceItem(
-                        source_type="evaluation_theme",
-                        source_id=1,
-                        claim="Feedback highlighted mentoring opportunity",
-                    )
-                ],
-                priority="high",
-            )
-        ],
-        development_plan=[
-            DevelopmentPlanAction(
-                action="Host workshops",
-                reason="Share knowledge",
-                measurable_target="2 workshops",
-                suggested_timeline="Q4",
-            )
-        ],
-        follow_up=FollowUp(checkpoint="End of month", review_focus="Mentorship progress"),
-        created_at=datetime.now(timezone.utc),
-    )
-
-    app.dependency_overrides[get_career_coach_ai_service] = lambda: mock_ai_service
-
-    # Test path parameter without query param
+# 7. Verify removed deprecated endpoint returns 404
+def test_career_coach_legacy_endpoint_removed(client):
     response = client.post("/api/career-coach/EMP-API-001")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "success"
-    assert data["employee_id"] == "EMP-API-001"
+    assert response.status_code == 404
 
-    # Test path parameter with query param
-    response = client.post("/api/career-coach/EMP-API-001?period=2026-Q3")
-    assert response.status_code == 200
-    assert response.json()["status"] == "success"
-
-
-# 8. Backward-compatible deprecated endpoint safe error handling
-def test_career_coach_legacy_endpoint_error_handling(client, seed_employee):
-    mock_ai_service = MagicMock(spec=CareerCoachAIService)
-    mock_ai_service.generate_career_plan.side_effect = CareerCoachAIServiceError(
-        "Groq API connection timeout."
-    )
-
-    app.dependency_overrides[get_career_coach_ai_service] = lambda: mock_ai_service
-
-    response = client.post("/api/career-coach/EMP-API-001")
-    assert response.status_code == 502
-    data = response.json()
-    assert "AI service temporarily unavailable. Reference ID:" in data["detail"]
-    assert "connection timeout" not in data["detail"]
 

@@ -115,3 +115,53 @@ def migrate_is_approved_columns(
 
     return report
 
+
+def migrate_chat_message_embedding_column(bind: Engine) -> dict[str, Any]:
+    """Safely and idempotently adds `embedding` column to `chat_messages` table if missing.
+
+    Parameters
+    ----------
+    bind : Engine
+        SQLAlchemy engine for MySQL or SQLite.
+
+    Returns
+    -------
+    dict[str, Any]
+        Migration report detailing whether column was added or was already present.
+    """
+    inspector = inspect(bind)
+    existing_tables: set[str] = set(inspector.get_table_names())
+    dialect_name: str = bind.dialect.name.lower()
+
+    report: dict[str, Any] = {
+        "table": "chat_messages",
+        "dialect": dialect_name,
+        "column_added": False,
+        "already_present": False,
+        "table_missing": False,
+    }
+
+    if "chat_messages" not in existing_tables:
+        report["table_missing"] = True
+        logger.info("Table 'chat_messages' does not exist yet. Skipping column migration.")
+        return report
+
+    columns = [col["name"] for col in inspector.get_columns("chat_messages")]
+    if "embedding" in columns:
+        report["already_present"] = True
+        logger.info("Column 'embedding' already present in table 'chat_messages'.")
+        return report
+
+    logger.info("Adding 'embedding' column to table 'chat_messages'...")
+    with bind.begin() as conn:
+        if dialect_name in ("mysql", "mariadb"):
+            alter_sql = text("ALTER TABLE `chat_messages` ADD COLUMN `embedding` LONGTEXT NULL")
+        else:
+            # SQLite / standard SQL
+            alter_sql = text("ALTER TABLE chat_messages ADD COLUMN embedding TEXT NULL")
+
+        conn.execute(alter_sql)
+        report["column_added"] = True
+
+    return report
+

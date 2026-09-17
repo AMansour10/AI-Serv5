@@ -54,38 +54,5 @@ def generate_career_coach(
         ) from None
 
 
-@router.post(
-    "/career-coach/{employee_id}",
-    response_model=CareerCoachResponse,
-    tags=["Career Coach"],
-    summary="Generate AI Career Coach Development Plan (Deprecated compatibility endpoint)",
-    deprecated=True,
-)
-def generate_career_coach_legacy(
-    employee_id: str,
-    period: str | None = None,
-    db: Annotated[Session, Depends(get_db)] = None,
-    ai_service: Annotated[CareerCoachAIService, Depends(get_career_coach_ai_service)] = None,
-) -> CareerCoachResponse:
-    """
-    Deprecated path-based route preserved for backward compatibility.
-    New clients must send inputs in the request body to POST /api/career-coach.
-    """
-    try:
-        return ai_service.generate_career_plan(
-            db=db,
-            employee_id=employee_id,
-            period=period,
-        )
-    except CareerCoachAIServiceError:
-        error_id = str(uuid.uuid4())
-        logger.exception(
-            "Career Coach AI service error [Reference ID: %s]",
-            error_id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI service temporarily unavailable. Reference ID: {error_id}",
-        ) from None
 
 

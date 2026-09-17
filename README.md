@@ -11,8 +11,7 @@ Backend service providing personalized, evidence-grounded employee development g
 Generates structured, evidence-based career development guidance for a target employee. Analyzes approved performance records, goals, skills, task outcomes, and evaluation themes.
 
 - **HTTP Method:** `POST`
-- **Primary Path:** `/api/career-coach`
-- **Backward-Compatible Path (Deprecated):** `/api/career-coach/{employee_id}`
+- **Path:** `/api/career-coach`
 - **Content-Type:** `application/json`
 
 ---
@@ -286,13 +285,13 @@ Content-Type: application/json
   ```
 - **`502 Bad Gateway`**: Returned on transient or upstream AI provider errors without exposing internal database logs.
 
-### Conversation Memory & Token Optimization Architecture
-The Policy Assistant incorporates token-efficient multi-turn conversational memory:
-- **Recent-Message Window (Max 4 Messages)**: The AI loads and injects at most the last 4 prior messages (up to 2 user questions + 2 assistant answers) into `<RECENT_CONVERSATION_HISTORY>`.
-- **Rolling Conversation Summary**: When dialogue exceeds 4 messages, older history is compressed into a 1–2 sentence summary in `ChatSession.summary` and injected as `<CONVERSATION_SUMMARY>`. Summaries are updated in 4-message increments to avoid calling the LLM summarizer on every turn.
-- **Zero Full-History Forwarding**: Complete conversation history is **never** sent to the LLM. This prevents token explosion and guarantees bounded latency even over dozens of conversation turns.
-- **Follow-up Context**: Follow-up questions (e.g. *"Does that apply to me too?"*) use recent context during category classification and prompt generation to resolve pronouns without resending historical policy documents.
-- **Strict Grounding Isolation**: Past conversation turns are treated as untrusted context; all policy answers must be strictly and independently grounded in current active and approved company policies.
+### Hybrid Memory Architecture & Token Optimization
+The Policy Assistant incorporates a production-grade **Hybrid Memory Architecture** designed for bounded token usage, dialogue continuity, and long-term recall:
+- **Short-Term Memory (Budget Window)**: Replaces fixed message counts with a configurable character/token budget (`recent_messages_char_budget = 2500` chars). Greedily includes recent turns in `<RECENT_CONVERSATION_HISTORY>`.
+- **Rolling Conversation Summary**: When conversation history exceeds the budget, older turns are distilled into a compact summary stored in `ChatSession.summary` and injected as `<CONVERSATION_SUMMARY>`. Summaries update in batches rather than on every turn, with non-destructive fallback if summarization fails.
+- **Semantic Memory / Older Turn Retrieval**: Semantic retrieval uses subword vector embeddings and cosine similarity to retrieve relevant turns from older conversations (`<RELEVANT_CONVERSATION_MEMORIES>`) when an employee refers to topics discussed much earlier. Filtered by `similarity_threshold = 0.35` and bounded by `retrieved_memory_char_budget = 1500` chars.
+- **Strict Policy Authority**: Approved company policies (`<COMPANY_POLICIES>`) are the authoritative source of truth and **strictly supersede** any contradictory retrieved memory. Grounding verification ensures answers must cite active approved policies and cannot cite past conversation as policy evidence.
+- **Prompt-Injection Defense**: Delimiters in memories, summaries, and queries are neutralized through sanitization escaping.
 
 ---
 
