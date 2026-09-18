@@ -23,6 +23,7 @@ from app.api.evaluation_draft import router as evaluation_draft_router
 from app.api.performance_insight import router as performance_insight_router
 from app.api.policy_assistant import router as policy_assistant_router
 from app.api.skill_gap import router as skill_gap_router
+from app.api.team_insight import router as team_insight_router
 from app.db.migrations import (
     migrate_chat_message_embedding_column,
     migrate_is_approved_columns,
@@ -57,6 +58,7 @@ app.include_router(policy_assistant_router, prefix="/api")
 app.include_router(evaluation_draft_router, prefix="/api")
 app.include_router(skill_gap_router, prefix="/api")
 app.include_router(attention_signal_router, prefix="/api")
+app.include_router(team_insight_router, prefix="/api")
 
 
 
