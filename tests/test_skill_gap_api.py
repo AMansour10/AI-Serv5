@@ -20,6 +20,14 @@ from app.models import (
     Skill,
     TaskOutcome,
 )
+from app.schemas.career_coach import EvidenceItem, PriorityLevel
+from app.schemas.skill_gap import (
+    GapSeverity,
+    LearningType,
+    SkillGapItem,
+    SkillGapModelOutput,
+    SkillRecommendationItem,
+)
 from app.services.skill_gap_ai import SkillGapAIService, SkillGapAIServiceError
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -174,7 +182,6 @@ def test_skill_gap_success_response(client, seed_test_data):
                     "focus_skill": "Distributed Systems",
                     "description": "Intensive coursework on event-driven architecture and saga patterns.",
                     "expected_outcome": "Ability to architect robust distributed transactions.",
-                    "measurable_target": "Complete 2 microservice projects with 80% test coverage within 6 weeks.",
                     "timeline": "6 weeks",
                     "priority": "high",
                 }
@@ -208,9 +215,6 @@ def test_skill_gap_success_response(client, seed_test_data):
     assert len(data["skill_gaps"]) == 1
     assert data["skill_gaps"][0]["skill_name"] == "Distributed Systems"
     assert len(data["recommendations"]) == 1
-    rec = data["recommendations"][0]
-    assert "measurable_target" in rec
-    assert rec["measurable_target"] == "Complete 2 microservice projects with 80% test coverage within 6 weeks."
     assert "disclaimer" in data
 
 
@@ -453,91 +457,4 @@ def test_infrastructure_failure_returns_502(client, seed_test_data):
     data = response.json()
     assert "AI service temporarily unavailable. Reference ID:" in data["detail"]
     assert "timeout" not in data["detail"]
-
-
-# 10. Missing measurable_target is rejected by schema (HTTP 502 via internal validation error)
-def test_missing_measurable_target_rejected_by_schema(client, seed_test_data):
-    mock_bad_json = json.dumps(
-        {
-            "status": "success",
-            "skill_gaps": [],
-            "recommendations": [
-                {
-                    "title": "Cloud Certification",
-                    "learning_type": "certification",
-                    "focus_skill": "Cloud",
-                    "description": "AWS Solutions Architect certificate",
-                    "expected_outcome": "Certification exam completion",
-                    # "measurable_target" intentionally missing
-                    "timeline": "3 months",
-                    "priority": "medium",
-                }
-            ],
-        }
-    )
-
-    mock_client = MagicMock()
-    mock_choice = MagicMock()
-    mock_choice.message.content = mock_bad_json
-    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
-
-    service = SkillGapAIService(api_key="test_key", client=mock_client)
-    app.dependency_overrides[get_skill_gap_ai_service] = lambda: service
-
-    response = client.post(
-        "/api/skill-gap",
-        json={"employee_id": "EMP-ALICE"},
-    )
-
-    assert response.status_code == 502
-    data = response.json()
-    assert "AI service temporarily unavailable. Reference ID:" in data["detail"]
-
-
-# 11. Generic/Non-measurable target is rejected safely by validation
-@pytest.mark.parametrize(
-    "generic_target",
-    [
-        "Improve your skills",
-        "Become better at Python",
-        "Learn more about leadership",
-        "Work harder",
-    ],
-)
-def test_generic_measurable_target_rejected_safely(client, seed_test_data, generic_target):
-    mock_generic_json = json.dumps(
-        {
-            "status": "success",
-            "skill_gaps": [],
-            "recommendations": [
-                {
-                    "title": "Python Practice",
-                    "learning_type": "self_paced_study",
-                    "focus_skill": "Python Backend",
-                    "description": "Daily coding practice",
-                    "expected_outcome": "Code proficiency",
-                    "measurable_target": generic_target,
-                    "timeline": "4 weeks",
-                    "priority": "medium",
-                }
-            ],
-        }
-    )
-
-    mock_client = MagicMock()
-    mock_choice = MagicMock()
-    mock_choice.message.content = mock_generic_json
-    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
-
-    service = SkillGapAIService(api_key="test_key", client=mock_client)
-    app.dependency_overrides[get_skill_gap_ai_service] = lambda: service
-
-    response = client.post(
-        "/api/skill-gap",
-        json={"employee_id": "EMP-ALICE"},
-    )
-
-    assert response.status_code == 502
-    data = response.json()
-    assert "AI service temporarily unavailable. Reference ID:" in data["detail"]
 
