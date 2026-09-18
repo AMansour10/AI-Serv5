@@ -20,14 +20,6 @@ from app.models import (
     Skill,
     TaskOutcome,
 )
-from app.schemas.career_coach import EvidenceItem, PriorityLevel
-from app.schemas.skill_gap import (
-    GapSeverity,
-    LearningType,
-    SkillGapItem,
-    SkillGapModelOutput,
-    SkillRecommendationItem,
-)
 from app.services.skill_gap_ai import SkillGapAIService, SkillGapAIServiceError
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -182,6 +174,7 @@ def test_skill_gap_success_response(client, seed_test_data):
                     "focus_skill": "Distributed Systems",
                     "description": "Intensive coursework on event-driven architecture and saga patterns.",
                     "expected_outcome": "Ability to architect robust distributed transactions.",
+                    "measurable_target": "Complete coursework and deliver a working saga orchestration prototype by week 6",
                     "timeline": "6 weeks",
                     "priority": "high",
                 }
@@ -351,6 +344,7 @@ def test_prohibited_employment_decision_rejected(client, seed_test_data):
                     "focus_skill": "Architecture",
                     "description": "The employee deserves an immediate promotion to Lead Architect.",
                     "expected_outcome": "Higher title and salary band",
+                    "measurable_target": "Complete promotion review packet by end of quarter",
                     "timeline": "immediate",
                     "priority": "high",
                 }
