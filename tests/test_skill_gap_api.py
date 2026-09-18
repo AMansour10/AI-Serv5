@@ -452,3 +452,17 @@ def test_infrastructure_failure_returns_502(client, seed_test_data):
     assert "AI service temporarily unavailable. Reference ID:" in data["detail"]
     assert "timeout" not in data["detail"]
 
+
+# 10. Unknown employee returns insufficient data
+def test_unknown_employee_returns_insufficient_data(client, db_session):
+    response = client.post(
+        "/api/skill-gap",
+        json={"employee_id": "EMP-NONEXISTENT"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "insufficient_data"
+    assert data["employee_id"] == "EMP-NONEXISTENT"
+    assert "skills" in data["missing_categories"]
+
+

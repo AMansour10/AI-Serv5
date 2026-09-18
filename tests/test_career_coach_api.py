@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,11 +20,6 @@ from app.models import (
 from app.schemas.career_coach import (
     CareerCoachInsufficientDataResponse,
     CareerCoachSuccessResponse,
-    DevelopmentAreaItem,
-    DevelopmentPlanAction,
-    EvidenceItem,
-    FollowUp,
-    StrengthItem,
 )
 from app.services.career_coach_ai import (
     CareerCoachAIService,
