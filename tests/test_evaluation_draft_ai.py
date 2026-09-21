@@ -280,7 +280,7 @@ def test_prohibited_employment_decisions_rejected(mock_context):
 
 def test_transient_error_retry_and_timeout(mock_context):
     mock_client = MagicMock()
-    mock_client.chat.completions.create.side_effect = APITimeoutError("Timeout connecting to Groq")
+    mock_client.chat.completions.create.side_effect = APITimeoutError(request=MagicMock())
 
     service = EvaluationDraftAIService(client=mock_client)
 
