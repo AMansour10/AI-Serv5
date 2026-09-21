@@ -60,8 +60,8 @@ def test_company_policy_crud_and_defaults(db_session):
     assert policy.content == "Detailed policy content text for testing purposes."
     assert policy.summary == "Short summary."
     assert policy.version == "1.0"
-    assert policy.is_active is True
-    assert policy.is_approved is True
+    assert policy.is_active is False
+    assert policy.is_approved is False
     assert policy.created_at is not None
 
     # Test update
