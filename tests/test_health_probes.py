@@ -123,7 +123,7 @@ def test_readiness_returns_200_when_db_and_provider_are_available(
 
     resp = client.get("/health/ready")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ready"}
+    assert resp.json() == {"status": "ready", "reason": None}
 
     # Also test /ready and /api/health/ready aliases
     resp_alias = client.get("/ready")
@@ -289,3 +289,4 @@ def test_legacy_health_check_preserved(client: TestClient):
     data = resp.json()
     assert data["status"] == "ok"
     assert "Smart HR Management System" in data["service"]
+
