@@ -25,6 +25,7 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models import AIFeedback
 from app.schemas.insight_snapshot import (
+    AIInsightFeature,
     AIFeedbackCreateRequest,
     AIFeedbackResponse,
     AIInsightHistoryResponse,
@@ -184,28 +185,36 @@ def _regenerate_feature(
 )
 def get_history(
     caller: Annotated[CallerContext, Depends(get_caller_context)],
-    feature: str = Query(..., description="AI feature name (e.g. 'career_coach', 'performance_insight')"),
+    feature: AIInsightFeature = Query(..., description="AI feature name"),
     employee_id: str | None = Query(default=None, description="Employee scope filter"),
     department: str | None = Query(default=None, description="Department scope filter"),
     period: str | None = Query(default=None, description="Evaluation period filter"),
+    page: int = Query(default=1, ge=1, description="1-based result page"),
+    page_size: int = Query(default=50, ge=1, le=100, description="Maximum snapshots per page"),
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> AIInsightHistoryResponse:
     """Retrieves version history for previously generated AI insights with scope authorization."""
     snapshots = get_insight_history(
         db=db,
         caller=caller,
-        feature=feature,
+        feature=feature.value,
         employee_id=employee_id,
         department=department,
         period=period,
+        page=page,
+        page_size=page_size,
     )
-    serialized = [_to_snapshot_response(s) for s in snapshots]
+    has_more = len(snapshots) > page_size
+    serialized = [_to_snapshot_response(s) for s in snapshots[:page_size]]
     return AIInsightHistoryResponse(
         feature=feature,
         scope_employee_id=employee_id or (caller.employee_id if caller.role == "employee" else None),
         scope_department=department or (caller.department if caller.role == "manager" else None),
         period=period,
         total_versions=len(serialized),
+        page=page,
+        page_size=page_size,
+        has_more=has_more,
         snapshots=serialized,
     )
 
@@ -297,9 +306,18 @@ def submit_feedback(
 def get_feedbacks_for_snapshot(
     snapshot_id: str,
     caller: Annotated[CallerContext, Depends(get_caller_context)],
+    page: int = Query(default=1, ge=1, description="1-based result page"),
+    page_size: int = Query(default=50, ge=1, le=100, description="Maximum feedback entries per page"),
     db: Annotated[Session, Depends(get_db)] = None,
 ) -> list[AIFeedbackResponse]:
     """Lists feedback entries for a specific AI insight snapshot."""
     snapshot = get_snapshot_by_id(db=db, caller=caller, snapshot_id=snapshot_id)
-    feedbacks = db.query(AIFeedback).filter(AIFeedback.snapshot_id == snapshot.id).order_by(AIFeedback.created_at.desc()).all()
+    feedbacks = (
+        db.query(AIFeedback)
+        .filter(AIFeedback.snapshot_id == snapshot.id)
+        .order_by(AIFeedback.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
     return [AIFeedbackResponse.model_validate(f) for f in feedbacks]

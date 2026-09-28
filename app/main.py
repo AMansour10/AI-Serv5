@@ -13,7 +13,10 @@ load_dotenv()
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 import app.models
@@ -33,6 +36,7 @@ from app.db.migrations import (
     migrate_is_approved_columns,
 )
 from app.db.session import DB_CONFIG_ERROR, Base, engine, get_db
+from app.gateway import HRApiException, hr_gateway_router
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,128 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(HRApiException)
+async def hr_api_exception_handler(request: Request, exc: HRApiException):
+    """Formats gateway exceptions in the standard HR API envelope."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": exc.message,
+            "errors": exc.errors,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def hr_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Formats validation errors on HR gateway routes into standard HR envelope."""
+    if request.url.path.startswith("/api/ai/"):
+        err_msgs = []
+        for e in exc.errors():
+            loc = " -> ".join(str(item) for item in e.get("loc", []))
+            err_msgs.append(f"{loc}: {e.get('msg')}")
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "success": False,
+                "message": "Validation error",
+                "errors": err_msgs,
+            },
+        )
+    from fastapi.exception_handlers import request_validation_exception_handler
+
+    return await request_validation_exception_handler(request, exc)
+
+
+def _custom_openapi():
+    """Publish the gateway contract explicitly, including runtime auth/errors."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+
+    components = schema.setdefault("components", {})
+    security_schemes = components.setdefault("securitySchemes", {})
+    security_schemes["bearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT Bearer token provided by Flutter or Web clients.",
+    }
+
+    schemas = components.setdefault("schemas", {})
+    schemas["HRApiErrorResponse"] = {
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean", "example": False},
+            "message": {"type": "string", "example": "An error occurred."},
+            "errors": {"type": "array", "items": {"type": "string"}, "example": []},
+        },
+        "required": ["success", "message"],
+    }
+
+    protected_prefixes = ("/api/", "/insights/")
+    for path, methods in schema.get("paths", {}).items():
+        if path.startswith("/api/ai/"):
+            for operation in methods.values():
+                if not isinstance(operation, dict):
+                    continue
+                operation["security"] = [{"bearerAuth": []}]
+                responses = operation.setdefault("responses", {})
+                responses["401"] = {
+                    "description": "Unauthenticated - Missing or invalid JWT Bearer token",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["403"] = {
+                    "description": "Forbidden - Insufficient permissions or outside scope",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["404"] = {
+                    "description": "Employee or requested resource not found",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["422"] = {
+                    "description": "Validation error",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["429"] = {
+                    "description": "Rate limit exceeded",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["502"] = {
+                    "description": "AI provider is temporarily unavailable",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["503"] = {
+                    "description": "AI service dependency is unavailable",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+                responses["504"] = {
+                    "description": "AI provider timed out",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HRApiErrorResponse"}}},
+                }
+        elif path.startswith(protected_prefixes):
+            for operation in methods.values():
+                if not isinstance(operation, dict):
+                    continue
+                responses = operation.setdefault("responses", {})
+                responses.setdefault("401", {"description": "Missing or invalid gateway authentication"})
+                responses.setdefault("403", {"description": "Caller is outside the permitted scope"})
+                responses.setdefault("404", {"description": "Requested resource was not found"})
+                responses.setdefault("429", {"description": "Rate limit exceeded; retry according to gateway policy"})
+                responses.setdefault("502", {"description": "AI provider is temporarily unavailable"})
+                responses.setdefault("503", {"description": "AI service dependency is unavailable"})
+                responses.setdefault("504", {"description": "AI provider timed out"})
+                for parameter in operation.get("parameters", []):
+                    if parameter.get("name") == "X-Caller-Role":
+                        parameter["required"] = True
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi
+
 app.state.db_initialized = False
 app.state.db_initialization_error = None
 
@@ -91,6 +217,7 @@ app.include_router(attention_signal_router, prefix="/api")
 app.include_router(team_insight_router, prefix="/api")
 app.include_router(insight_snapshots_router, prefix="/api/insights")
 app.include_router(insight_snapshots_router, prefix="/insights", include_in_schema=False)
+app.include_router(hr_gateway_router)
 
 
 

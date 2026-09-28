@@ -249,6 +249,15 @@ def verify_snapshot_authorization(
             caller=caller,
             requested_department=snapshot.scope_department,
         )
+    else:
+        # A snapshot without an explicit scope must never be enumerable by a
+        # normal employee/manager.  Only HR administrators may inspect such a
+        # legacy/system record until it is repaired or re-scoped.
+        if caller.role != CallerRole.HR_ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: snapshot has no authorized employee or department scope.",
+            )
 
 
 def get_snapshot_by_id(
@@ -274,6 +283,8 @@ def get_insight_history(
     employee_id: str | None = None,
     department: str | None = None,
     period: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
 ) -> list[AIInsightSnapshot]:
     """Retrieves version history for previously generated insights with strict scope isolation."""
     clean_feature = feature.strip().lower()
@@ -310,7 +321,16 @@ def get_insight_history(
     if period:
         query = query.filter(AIInsightSnapshot.period == period.strip())
 
-    snapshots = query.order_by(AIInsightSnapshot.version.desc(), AIInsightSnapshot.created_at.desc()).all()
+    # Bound result size to avoid unbounded history reads.  Fetch one extra row
+    # so callers can expose a stable has_more indicator without leaking data.
+    safe_page = max(1, page)
+    safe_page_size = min(max(1, page_size), 100)
+    snapshots = (
+        query.order_by(AIInsightSnapshot.version.desc(), AIInsightSnapshot.created_at.desc())
+        .offset((safe_page - 1) * safe_page_size)
+        .limit(safe_page_size + 1)
+        .all()
+    )
 
     # Double check scope authorization on all retrieved items
     authorized_snapshots: list[AIInsightSnapshot] = []

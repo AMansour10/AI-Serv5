@@ -115,5 +115,5 @@ def readiness_probe(
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"status": "ready"},
+        content={"status": "ready", "reason": None},
     )

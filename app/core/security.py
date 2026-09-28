@@ -7,11 +7,14 @@ across employee-scoped, manager-only, and department-scoped AI routes.
 
 from __future__ import annotations
 
+import hmac
+import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Security, status
+from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -28,6 +31,16 @@ class CallerRole(str, Enum):
 
 ALLOWED_ROLES = {CallerRole.EMPLOYEE.value, CallerRole.MANAGER.value, CallerRole.HR_ADMIN.value}
 
+# These headers are populated by the HR gateway.  Declaring the identity header
+# as an API-key security scheme makes the trust boundary visible in OpenAPI
+# while preserving the existing runtime contract used by the gateway.
+caller_identity_header = APIKeyHeader(
+    name="X-Caller-Employee-ID",
+    scheme_name="GatewayCallerIdentity",
+    auto_error=False,
+    description="Trusted caller identity set by the HR gateway; clients must not set this directly.",
+)
+
 
 @dataclass(frozen=True)
 class CallerContext:
@@ -39,18 +52,19 @@ class CallerContext:
 
 
 def get_caller_context(
-    x_caller_employee_id: Annotated[
-        str | None,
-        Header(
-            alias="X-Caller-Employee-ID",
-            description="Authenticated caller employee ID passed by trusted gateway",
-        ),
-    ] = None,
+    x_caller_employee_id: Annotated[str | None, Security(caller_identity_header)] = None,
     x_caller_role: Annotated[
         str | None,
         Header(
             alias="X-Caller-Role",
             description="Authenticated caller role (employee, manager, hr_admin)",
+        ),
+    ] = None,
+    x_gateway_service_token: Annotated[
+        str | None,
+        Header(
+            alias="X-Gateway-Service-Token",
+            description="Service credential required when AI_GATEWAY_SERVICE_TOKEN is configured",
         ),
     ] = None,
     db: Annotated[Session, Depends(get_db)] = None,
@@ -65,10 +79,18 @@ def get_caller_context(
     - Returns an immutable CallerContext(employee_id, role, department).
     - Missing or invalid caller headers -> HTTP 401 Unauthorized.
     """
+    configured_token = os.getenv("AI_GATEWAY_SERVICE_TOKEN", "").strip()
+    if configured_token and not hmac.compare_digest(x_gateway_service_token or "", configured_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing HR gateway service credential",
+            headers={"WWW-Authenticate": "Gateway"},
+        )
     if not x_caller_employee_id or not x_caller_employee_id.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or empty required header: X-Caller-Employee-ID",
+            headers={"WWW-Authenticate": "Gateway"},
         )
 
     if not x_caller_role or not x_caller_role.strip():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,6 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class AIInsightFeature(str, Enum):
+    """Published feature identifiers; prevents arbitrary snapshot partitions."""
+
+    CAREER_COACH = "career_coach"
+    PERFORMANCE_INSIGHT = "performance_insight"
+    POLICY_ASSISTANT = "policy_assistant"
+    EVALUATION_DRAFT = "evaluation_draft"
+    SKILL_GAP = "skill_gap"
+    ATTENTION_SIGNAL = "attention_signal"
+    TEAM_INSIGHT = "team_insight"
 
 
 class AIFeedbackCreateRequest(BaseModel):
@@ -75,11 +88,14 @@ class AIInsightSnapshotResponse(BaseModel):
 class AIInsightHistoryResponse(BaseModel):
     """Response model for version history of an AI insight."""
 
-    feature: str
+    feature: AIInsightFeature
     scope_employee_id: str | None = None
     scope_department: str | None = None
     period: str | None = None
     total_versions: int
+    page: int = 1
+    page_size: int = 50
+    has_more: bool = False
     snapshots: list[AIInsightSnapshotResponse]
 
     model_config = ConfigDict(from_attributes=True)
