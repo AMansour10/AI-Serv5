@@ -40,14 +40,26 @@ def is_shared_hr_schema(bind: Any) -> bool:
 
 
 def get_shared_employee(db: Session, external_id: str) -> SharedEmployee | None:
-    """Resolve the public employee code against the Laravel HR tables."""
+    """Resolve the public employee code against Laravel users/employees.
+
+    The HR application can have a user before an optional row exists in
+    ``employees``.  ``users.employee_id`` is also unique and is the identifier
+    shown by the HR UI, so it is a valid fallback for authentication and
+    employee-scoped reads.
+    """
     row = db.execute(
         text("""
-            SELECT e.employee_id, e.job_title, d.name, e.user_id
-            FROM employees AS e
-            LEFT JOIN departments AS d ON d.id = e.department_id
-            WHERE e.employee_id = :employee_id
-              AND e.deleted_at IS NULL
+            SELECT COALESCE(e.employee_id, u.employee_id) AS employee_id,
+                   COALESCE(e.job_title, u.job_title) AS job_title,
+                   d.name AS department,
+                   u.id AS user_id
+            FROM users AS u
+            LEFT JOIN employees AS e ON e.user_id = u.id AND e.deleted_at IS NULL
+            LEFT JOIN departments AS d
+              ON d.id = COALESCE(e.department_id, u.department_id)
+             AND d.deleted_at IS NULL
+            WHERE u.employee_id = :employee_id
+              AND u.deleted_at IS NULL
             LIMIT 1
         """),
         {"employee_id": external_id.strip()},
@@ -57,7 +69,7 @@ def get_shared_employee(db: Session, external_id: str) -> SharedEmployee | None:
     return SharedEmployee(
         id=str(row["employee_id"]),
         role_title=str(row["job_title"] or ""),
-        department=str(row["name"] or ""),
+        department=str(row["department"] or ""),
         user_id=int(row["user_id"]),
     )
 
