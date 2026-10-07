@@ -8,6 +8,7 @@ updates, or deletes HR records.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -96,15 +97,34 @@ def build_shared_career_context(
 
     performance_rows = db.execute(
         text(f"""
-            SELECT ev.id, ep.name AS period, ev.overall_score, ev.feedback
+            SELECT ev.id, ep.name AS period,
+                   COALESCE(ev.overall_score, AVG(es.score)) AS overall_score,
+                   ev.feedback
             FROM evaluations AS ev
             LEFT JOIN evaluation_periods AS ep ON ep.id = ev.period_id
+            LEFT JOIN evaluation_scores AS es ON es.evaluation_id = ev.id
             WHERE ev.user_id = :user_id AND ev.status = 'completed' {period_filter}
+            GROUP BY ev.id, ep.name, ev.overall_score, ev.feedback, ev.created_at
             ORDER BY ev.created_at DESC, ev.id DESC
             LIMIT {int(limits['performance'])}
         """),
         params,
     ).mappings().all()
+
+    metric_row = db.execute(
+        text("""
+            SELECT
+                (SELECT AVG(t.progress)
+                 FROM task_assignments AS ta
+                 INNER JOIN tasks AS t ON t.id = ta.task_id
+                 WHERE ta.user_id = :user_id) AS task_completion_rate,
+                (SELECT 100.0 * AVG(CASE WHEN g.status = 'completed' THEN 1 ELSE 0 END)
+                 FROM goals AS g WHERE g.user_id = :user_id) AS goal_achievement_rate,
+                (SELECT 100.0 * AVG(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END)
+                 FROM attendances AS a WHERE a.user_id = :user_id) AS attendance_rate
+        """),
+        {"user_id": employee.user_id},
+    ).mappings().one()
 
     goal_rows = db.execute(
         text(f"""
@@ -145,23 +165,47 @@ def build_shared_career_context(
         params,
     ).mappings().all()
 
+    def normalize_period(value: Any) -> str:
+        """Normalize Laravel labels such as '[TEST] Q4 2026 Review' to 2026-Q4."""
+        raw = str(value or "").strip()
+        match = re.search(r"Q([1-4])\s+(\d{4})", raw, re.IGNORECASE)
+        return f"{match.group(2)}-Q{match.group(1)}" if match else raw
+
+    normalized_performance = [
+        {
+            "id": int(row["id"]),
+            "source_type": "performance",
+            "period": normalize_period(row["period"]),
+            "overall_score": float(row["overall_score"]),
+            "task_completion_rate": float(metric_row["task_completion_rate"] or 0),
+            "goal_achievement_rate": float(metric_row["goal_achievement_rate"] or 0),
+            "attendance_rate": float(metric_row["attendance_rate"] or 0),
+            "feedback": str(row["feedback"] or ""),
+        }
+        for row in performance_rows
+        if row["overall_score"] is not None
+    ]
+
+    normalized_themes = [
+        {
+            "id": int(row["id"]),
+            "source_type": "evaluation_theme",
+            "theme": str(row["theme"] or ""),
+            "sentiment": "",
+            "evidence": str(row["evidence"] or row["feedback"] or ""),
+            "period": normalize_period(row["period"]),
+            "score": float(row["score"]),
+        }
+        for row in theme_rows
+    ]
+
     context = {
         "employee": {
             "id": employee.id,
             "role_title": employee.role_title,
             "department": employee.department,
         },
-        "performance": [
-            {
-                "id": int(row["id"]),
-                "source_type": "performance",
-                "period": str(row["period"] or ""),
-                "overall_score": float(row["overall_score"]),
-                "feedback": str(row["feedback"] or ""),
-            }
-            for row in performance_rows
-            if row["overall_score"] is not None
-        ],
+        "performance": normalized_performance,
         "goals": [
             {
                 "id": int(row["id"]),
@@ -174,7 +218,20 @@ def build_shared_career_context(
             }
             for row in goal_rows
         ],
-        "skills": [],
+        # The Laravel schema has no standalone skills table. Evaluation
+        # categories are the authoritative competency records, so expose the
+        # same scored category rows as factual skill evidence.
+        "skills": [
+            {
+                "id": item["id"],
+                "source_type": "skill",
+                "name": item["theme"],
+                "level": f"score {item['score']}",
+                "evidence": item["evidence"],
+                "period": item["period"],
+            }
+            for item in normalized_themes
+        ],
         "task_outcomes": [
             {
                 "id": int(row["id"]),
@@ -188,18 +245,7 @@ def build_shared_career_context(
             }
             for row in task_rows
         ],
-        "evaluation_themes": [
-            {
-                "id": int(row["id"]),
-                "source_type": "evaluation_theme",
-                "theme": str(row["theme"] or ""),
-                "sentiment": "",
-                "evidence": str(row["evidence"] or row["feedback"] or ""),
-                "period": str(row["period"] or ""),
-                "score": float(row["score"]),
-            }
-            for row in theme_rows
-        ],
+        "evaluation_themes": normalized_themes,
     }
     missing = [category for category in ("performance", "goals", "skills", "task_outcomes", "evaluation_themes") if not context[category]]
     return {
