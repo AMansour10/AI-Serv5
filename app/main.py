@@ -37,6 +37,7 @@ from app.db.migrations import (
 )
 from app.db.session import DB_CONFIG_ERROR, Base, engine, get_db
 from app.gateway import HRApiException, hr_gateway_router
+from app.services.shared_hr_data import is_shared_hr_schema
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +62,12 @@ async def lifespan(app: FastAPI):
     app.state.db_initialization_error = None
     # Initialize database schema and ensure idempotent column migrations at startup
     try:
-        Base.metadata.create_all(bind=engine)
-        migrate_is_approved_columns(bind=engine, default_for_legacy=False)
-        migrate_chat_message_embedding_column(bind=engine)
+        if is_shared_hr_schema(engine):
+            logger.info("Detected shared Laravel HR schema; skipping HR-owned table creation and migrations.")
+        else:
+            Base.metadata.create_all(bind=engine)
+            migrate_is_approved_columns(bind=engine, default_for_legacy=False)
+            migrate_chat_message_embedding_column(bind=engine)
         migrate_ai_audit_events_table(bind=engine)
         migrate_ai_snapshots_tables(bind=engine)
         app.state.db_initialized = True

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.gateway.jwt import decode_jwt_token
 from app.models import Employee
+from app.services.shared_hr_data import get_shared_employee, is_shared_hr_schema
 
 bearer_security = HTTPBearer(auto_error=False)
 
@@ -120,14 +121,15 @@ def get_hr_caller_context(
             employee_id_candidate = token
 
     # 3. Look up caller employee in DB
+    shared_schema = is_shared_hr_schema(db.get_bind())
     caller_emp = (
-        db.query(Employee)
-        .filter(Employee.id == employee_id_candidate)
-        .first()
+        get_shared_employee(db, str(employee_id_candidate))
+        if shared_schema and employee_id_candidate
+        else db.query(Employee).filter(Employee.id == employee_id_candidate).first()
     )
 
     # Also search by first_name or partial ID if not directly matched
-    if not caller_emp and employee_id_candidate:
+    if not caller_emp and employee_id_candidate and not shared_schema:
         caller_emp = db.query(Employee).filter(Employee.id.ilike(f"%{employee_id_candidate}%")).first()
 
     if not caller_emp:
@@ -139,7 +141,7 @@ def get_hr_caller_context(
     final_role = normalize_role(role_candidate or getattr(caller_emp, "role_title", "employee"))
 
     return HRCallerContext(
-        user_id=caller_emp.id,
+        user_id=getattr(caller_emp, "user_id", caller_emp.id),
         employee_id=caller_emp.id,
         role=final_role,
         department=caller_emp.department or "General",
@@ -184,7 +186,11 @@ def verify_and_resolve_employee_scope(
         return caller.employee_id
 
     # Verify target employee exists
-    target_emp = db.query(Employee).filter(Employee.id == clean_target).first()
+    target_emp = (
+        get_shared_employee(db, clean_target)
+        if is_shared_hr_schema(db.get_bind())
+        else db.query(Employee).filter(Employee.id == clean_target).first()
+    )
     if not target_emp:
         raise HRApiException(
             status_code=status.HTTP_404_NOT_FOUND,

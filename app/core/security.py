@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import ChatSession, Employee
+from app.services.shared_hr_data import get_shared_employee, is_shared_hr_schema
 
 
 class CallerRole(str, Enum):
@@ -107,7 +108,11 @@ def get_caller_context(
         )
 
     clean_employee_id = x_caller_employee_id.strip()
-    caller_emp = db.query(Employee).filter(Employee.id == clean_employee_id).first()
+    caller_emp = (
+        get_shared_employee(db, clean_employee_id)
+        if is_shared_hr_schema(db.get_bind())
+        else db.query(Employee).filter(Employee.id == clean_employee_id).first()
+    )
     if not caller_emp:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -158,7 +163,11 @@ def authorize_employee_scope(
 
     # 3. Manager role: department-scoped
     if caller.role == CallerRole.MANAGER.value:
-        target_emp = db.query(Employee).filter(Employee.id == clean_target_id).first()
+        target_emp = (
+            get_shared_employee(db, clean_target_id)
+            if is_shared_hr_schema(db.get_bind())
+            else db.query(Employee).filter(Employee.id == clean_target_id).first()
+        )
         if target_emp and target_emp.department.strip().lower() != caller.department.strip().lower():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -49,6 +49,7 @@ from app.services.grounding import (
 )
 from app.services.memory_service import BaseMemoryManager, MemoryManager
 from app.services.policy_context import PolicyContextBuilder
+from app.services.shared_hr_data import is_shared_hr_schema
 
 logger = logging.getLogger(__name__)
 
@@ -535,6 +536,15 @@ class PolicyAIService:
     @staticmethod
     def get_available_categories(db: Session) -> list[str]:
         """Retrieves distinct categories from active and approved company policies."""
+        if is_shared_hr_schema(db.get_bind()):
+            # The Laravel schema has no policy category column.  PolicyContextBuilder
+            # deliberately exposes the single schema-backed category "general".
+            from sqlalchemy import text
+
+            exists = db.execute(
+                text("SELECT 1 FROM policies AS p INNER JOIN policy_versions AS pv ON pv.policy_id = p.id WHERE p.status = 'active' AND pv.status = 'active' LIMIT 1")
+            ).first()
+            return ["general"] if exists else []
         records = (
             db.query(CompanyPolicy.category)
             .filter(CompanyPolicy.is_active.is_(True), CompanyPolicy.is_approved.is_(True))

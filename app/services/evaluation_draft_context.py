@@ -21,6 +21,11 @@ from app.models import (
     Skill,
     TaskOutcome,
 )
+from app.services.shared_hr_data import (
+    build_shared_career_context,
+    get_shared_employee,
+    is_shared_hr_schema,
+)
 
 # Context Budget Limits
 MAX_PERFORMANCE_RECORDS = 5
@@ -161,6 +166,22 @@ class EvaluationDraftContextBuilder:
         - Prioritizes target period records, then newer records deterministically.
         - Provides approved_sources index for grounding verification.
         """
+        if is_shared_hr_schema(db.get_bind()):
+            employee = get_shared_employee(db, employee_id)
+            if not employee:
+                return {
+                    "has_sufficient_data": False,
+                    "missing_categories": EVALUATION_CATEGORIES.copy(),
+                    "error": f"Employee with id '{employee_id}' not found.",
+                    "context": None,
+                    "approved_sources": {},
+                    "selected_source_ids": {},
+                }
+            return build_shared_career_context(
+                db, employee, period,
+                {"performance": MAX_PERFORMANCE_RECORDS, "goals": MAX_GOALS, "task_outcomes": MAX_TASK_OUTCOMES, "evaluation_themes": MAX_EVALUATION_THEMES},
+            )
+
         employee = db.query(Employee).filter(Employee.id == employee_id).first()
         if not employee:
             return {
