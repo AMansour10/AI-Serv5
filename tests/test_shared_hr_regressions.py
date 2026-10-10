@@ -6,7 +6,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.services.attention_signal_context import AttentionSignalContextBuilder
 from app.services.performance_insight_context import PerformanceInsightContextBuilder
+from app.services.policy_ai import PolicyAIService
 from app.services.shared_hr_data import get_shared_employee
+from app.services.team_insight_context import TeamInsightContextBuilder
 
 
 def _shared_session() -> Session:
@@ -25,6 +27,7 @@ def _shared_session() -> Session:
         "CREATE TABLE tasks (id INTEGER PRIMARY KEY, title VARCHAR(100), description TEXT, status VARCHAR(30), progress INTEGER, created_by INTEGER, deadline DATETIME, updated_at DATETIME)",
         "CREATE TABLE task_assignments (id INTEGER PRIMARY KEY, task_id INTEGER, user_id INTEGER)",
         "CREATE TABLE attendances (id INTEGER PRIMARY KEY, user_id INTEGER, date DATE, status VARCHAR(20))",
+        "CREATE TABLE chat_sessions (id VARCHAR(36) PRIMARY KEY, employee_id VARCHAR(50), title VARCHAR(100), summary TEXT, created_at DATETIME, updated_at DATETIME)",
     ]
     for statement in ddl:
         db.execute(text(statement))
@@ -65,5 +68,26 @@ def test_shared_attention_resolves_employee_without_legacy_missing_table_reason(
         assert context["has_sufficient_data"] is True
         assert context["target_period"] == "2026-Q4"
         assert "PerformanceRecord" not in (context.get("reason") or "")
+    finally:
+        db.close()
+
+
+def test_policy_session_resolution_uses_external_employee_id_on_shared_schema():
+    db = _shared_session()
+    try:
+        service = PolicyAIService(api_key="test-key")
+        session = service.resolve_chat_session(db, "EMP-TEST-1")
+        assert session is not None
+        assert session.employee_id == "EMP-TEST-1"
+    finally:
+        db.close()
+
+
+def test_shared_team_context_contract_always_contains_trend_direction():
+    db = _shared_session()
+    try:
+        context = TeamInsightContextBuilder.build_context(db, "Engineering", "2026-Q4")
+        assert context["has_sufficient_data"] is True
+        assert context["completion_trends"]["direction"] in {"improved", "declined", "stable"}
     finally:
         db.close()

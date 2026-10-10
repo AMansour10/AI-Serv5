@@ -386,17 +386,21 @@ def build_shared_team_context(db: Session, department: str, period: str | None =
                 "message": f"No approved performance, task, or goal records found for department '{department}'.",
                 "grounding_registry": {}}
     avg = lambda key: round(sum(float(r[key]) for r in target) / len(target), 2) if target else 0.0
+    comparison = [p for p in performance if p["period"] == periods[-2]] if len(periods) > 1 and target_period == periods[-1] else []
+    current_score = avg("overall_score")
+    previous_score = round(sum(float(r["overall_score"]) for r in comparison) / len(comparison), 2) if comparison else None
+    direction = "improved" if previous_score is not None and current_score > previous_score else "declined" if previous_score is not None and current_score < previous_score else "stable"
     registry = {"department": department, "target_period": target_period, "comparison_period": periods[-2] if len(periods) > 1 else None,
                 "team_size": len(users), "team_avg_task_completion": avg("task_completion_rate"),
                 "team_avg_goal_achievement": avg("goal_achievement_rate"), "team_avg_overall_score": avg("overall_score"),
                 "total_blocked_tasks": 0, "total_delayed_goals": 0, "affected_member_count": 0,
-                "top_skills": [], "skill_frequencies": {}, "top_positive_themes": [], "positive_theme_frequencies": {},
+                "direction": direction, "top_skills": [], "skill_frequencies": {}, "top_positive_themes": [], "positive_theme_frequencies": {},
                 "top_needs_improvement_themes": [], "needs_improvement_theme_frequencies": {}}
     return {"has_sufficient_data": True, "department": department, "period": target_period,
             "comparison_period": registry["comparison_period"], "team_size": len(users),
             "workload_patterns": {"total_blocked_tasks": 0, "total_delayed_goals": 0, "affected_member_count": 0,
                                    "blocked_task_samples": [], "delayed_goal_samples": []},
-            "completion_trends": {k: registry[k] for k in ("team_avg_task_completion", "team_avg_goal_achievement", "team_avg_overall_score")},
+            "completion_trends": {**{k: registry[k] for k in ("team_avg_task_completion", "team_avg_goal_achievement", "team_avg_overall_score")}, "direction": direction, "comparison_averages": None},
             "skill_patterns": {"top_common_skills": [], "skill_frequencies": {}},
             "evaluation_theme_patterns": {"top_positive_themes": [], "positive_frequencies": [], "top_needs_improvement_themes": [], "needs_improvement_frequencies": []},
             "drill_down_factors": [], "grounding_registry": registry}

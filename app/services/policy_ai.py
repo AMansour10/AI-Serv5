@@ -49,7 +49,7 @@ from app.services.grounding import (
 )
 from app.services.memory_service import BaseMemoryManager, MemoryManager
 from app.services.policy_context import PolicyContextBuilder
-from app.services.shared_hr_data import is_shared_hr_schema
+from app.services.shared_hr_data import get_shared_employee, is_shared_hr_schema
 
 logger = logging.getLogger(__name__)
 
@@ -647,13 +647,19 @@ class PolicyAIService:
                 return session
 
             # Verify employee exists before creating a session to prevent foreign key errors
-            employee = db.query(Employee).filter(Employee.id == employee_id).first()
+            employee = (
+                get_shared_employee(db, employee_id)
+                if is_shared_hr_schema(db.get_bind())
+                else db.query(Employee).filter(Employee.id == employee_id).first()
+            )
             if not employee:
                 return None
 
+            canonical_employee_id = employee.id
+
             new_session = ChatSession(
                 id=str(uuid.uuid4()),
-                employee_id=employee_id,
+                employee_id=canonical_employee_id,
                 title=None,
                 summary=None,
                 created_at=utc_now(),

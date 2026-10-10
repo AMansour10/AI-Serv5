@@ -443,9 +443,19 @@ class TeamInsightAIService:
             self._check_privacy_and_pii(txt)
 
         # 2. Check contradictory trend direction
-        dir_val = context["completion_trends"]["direction"]
+        completion_trends = context.get("completion_trends") or {}
+        dir_val = completion_trends.get("direction")
+        if not dir_val:
+            raise TeamInsightAIServiceError(
+                "Team insight context is missing the required completion trend direction."
+            )
         if isinstance(dir_val, str):
-            dir_val = TrendDirection(dir_val)
+            try:
+                dir_val = TrendDirection(dir_val)
+            except ValueError as exc:
+                raise TeamInsightAIServiceError(
+                    "Team insight context contains an invalid completion trend direction."
+                ) from exc
         self._check_contradictory_trend(output.completion_trends_summary, dir_val)
         self._check_contradictory_trend(output.executive_summary, dir_val)
 

@@ -262,7 +262,11 @@ def authorize_chat_session_scope(
         )
 
     if caller.role == CallerRole.MANAGER.value:
-        session_emp = db.query(Employee).filter(Employee.id == session.employee_id).first()
+        session_emp = (
+            get_shared_employee(db, session.employee_id)
+            if is_shared_hr_schema(db.get_bind())
+            else db.query(Employee).filter(Employee.id == session.employee_id).first()
+        )
         if session_emp and session_emp.department.strip().lower() != caller.department.strip().lower():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
