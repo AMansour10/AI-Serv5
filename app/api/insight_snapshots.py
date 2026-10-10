@@ -25,9 +25,9 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models import AIFeedback
 from app.schemas.insight_snapshot import (
-    AIInsightFeature,
     AIFeedbackCreateRequest,
     AIFeedbackResponse,
+    AIInsightFeature,
     AIInsightHistoryResponse,
     AIInsightSnapshotResponse,
 )
@@ -185,7 +185,7 @@ def _regenerate_feature(
 )
 def get_history(
     caller: Annotated[CallerContext, Depends(get_caller_context)],
-    feature: AIInsightFeature = Query(..., description="AI feature name"),
+    feature: AIInsightFeature = Query(..., description="AI feature name"),  # noqa: B008
     employee_id: str | None = Query(default=None, description="Employee scope filter"),
     department: str | None = Query(default=None, description="Department scope filter"),
     period: str | None = Query(default=None, description="Evaluation period filter"),

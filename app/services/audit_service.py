@@ -42,6 +42,7 @@ class AIAuditOutcome:
     UNAUTHORIZED = "unauthorized"
     VALIDATION_ERROR = "validation_error"
     PROVIDER_ERROR = "provider_error"
+    DEPENDENCY_ERROR = "dependency_error"
     GROUNDING_ERROR = "grounding_error"
     SAFETY_ERROR = "safety_error"
 

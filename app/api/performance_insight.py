@@ -5,6 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import (
@@ -133,6 +134,14 @@ def generate_performance_insight(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"AI service temporarily unavailable. Reference ID: {error_id}",
+        ) from None
+    except SQLAlchemyError:
+        error_id = str(uuid.uuid4())
+        logger.exception("Performance Insight database error [Reference ID: %s]", error_id)
+        audit.record_outcome(AIAuditOutcome.DEPENDENCY_ERROR, reference_id=error_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"HR data service temporarily unavailable. Reference ID: {error_id}",
         ) from None
     finally:
         audit.flush()

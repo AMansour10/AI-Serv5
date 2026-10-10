@@ -5,6 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import (
@@ -24,6 +25,7 @@ from app.services.policy_ai import (
     ChatSessionNotFoundError,
     PolicyAIService,
     PolicyAIServiceError,
+    PolicyDependencyError,
 )
 from app.services.policy_context import PolicyContextBuilder
 from app.services.snapshot_service import persist_insight_snapshot
@@ -122,6 +124,22 @@ def ask_policy_assistant(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: session belongs to another employee.",
+        ) from None
+    except PolicyDependencyError:
+        error_id = str(uuid.uuid4())
+        logger.exception("Policy Assistant dependency error [Reference ID: %s]", error_id)
+        audit.record_outcome(AIAuditOutcome.DEPENDENCY_ERROR, reference_id=error_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Policy service temporarily unavailable. Reference ID: {error_id}",
+        ) from None
+    except SQLAlchemyError:
+        error_id = str(uuid.uuid4())
+        logger.exception("Policy Assistant database error [Reference ID: %s]", error_id)
+        audit.record_outcome(AIAuditOutcome.DEPENDENCY_ERROR, reference_id=error_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Policy service temporarily unavailable. Reference ID: {error_id}",
         ) from None
     except PolicyAIServiceError:
         error_id = str(uuid.uuid4())

@@ -211,6 +211,10 @@ class PolicyAIServiceError(Exception):
     """Application-level exception for AI Policy Assistant service errors."""
 
 
+class PolicyDependencyError(PolicyAIServiceError):
+    """Raised when policy storage or another non-provider dependency fails."""
+
+
 class PolicyGroundingError(PolicyAIServiceError):
     """Raised when policy answer fails evidence grounding checks."""
 
@@ -664,7 +668,7 @@ class PolicyAIService:
         except SQLAlchemyError:
             db.rollback()
             logger.exception("Database error while resolving chat session.")
-            raise PolicyAIServiceError("Database operation failed while resolving chat session.") from None
+            raise PolicyDependencyError("Database operation failed while resolving chat session.") from None
 
     def record_chat_message(
         self,
@@ -699,7 +703,7 @@ class PolicyAIService:
         except SQLAlchemyError:
             db.rollback()
             logger.exception("Database error while recording chat message.")
-            raise PolicyAIServiceError("Database operation failed while persisting chat message.") from None
+            raise PolicyDependencyError("Database operation failed while persisting chat message.") from None
 
     def record_chat_turn(
         self,
@@ -756,7 +760,7 @@ class PolicyAIService:
         except SQLAlchemyError:
             db.rollback()
             logger.exception("Database error while recording chat turn.")
-            raise PolicyAIServiceError("Database operation failed while persisting chat turn.") from None
+            raise PolicyDependencyError("Database operation failed while persisting chat turn.") from None
 
 
     def generate_conversation_summary(

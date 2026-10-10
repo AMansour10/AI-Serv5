@@ -13,7 +13,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import Employee, PerformanceRecord
-from app.services.shared_hr_data import get_shared_employee, is_shared_hr_schema
+from app.services.shared_hr_data import (
+    build_shared_performance_context,
+    get_shared_employee,
+    is_shared_hr_schema,
+)
 
 # Context budget limits
 MAX_PERFORMANCE_RECORDS = 10
@@ -128,35 +132,14 @@ class PerformanceInsightContextBuilder:
         """
         if is_shared_hr_schema(db.get_bind()):
             employee = get_shared_employee(db, employee_id)
-            employee_dict = None
-            if employee:
-                employee_dict = {
-                    "id": employee.id,
-                    "role_title": _clean_str(employee.role_title, 100),
-                    "department": _clean_str(employee.department, 100),
+            if employee is None:
+                return {
+                    "employee": None, "has_sufficient_data": False, "has_trend_data": False,
+                    "reason": f"Employee '{employee_id}' not found.", "target_period": period,
+                    "comparison_period": None, "facts": {"records_count": 0, "periods": [], "metrics_by_period": []},
+                    "metrics_by_period": [], "calculated_trends": {"comparison_available": False, "from_period": None, "to_period": None, "metric_trends": {}, "period_over_period": []}, "trends": {},
                 }
-            return {
-                "employee": employee_dict,
-                "has_sufficient_data": False,
-                "has_trend_data": False,
-                "reason": (
-                    f"Employee '{employee_id}' not found."
-                    if employee is None
-                    else "The shared HR schema has no PerformanceRecord table with the required AI metric columns."
-                ),
-                "target_period": period,
-                "comparison_period": None,
-                "facts": {"records_count": 0, "periods": [], "metrics_by_period": []},
-                "metrics_by_period": [],
-                "calculated_trends": {
-                    "comparison_available": False,
-                    "from_period": None,
-                    "to_period": None,
-                    "metric_trends": {},
-                    "period_over_period": [],
-                },
-                "trends": {},
-            }
+            return build_shared_performance_context(db, employee, period, limit, min_periods)
 
         # 1. Verify employee exists and extract safe identity fields only
         employee = db.query(Employee).filter(Employee.id == employee_id).first()

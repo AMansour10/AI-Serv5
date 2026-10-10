@@ -5,6 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.security import (
@@ -129,6 +130,14 @@ def generate_evaluation_draft(
         if exc.status_code == 403:
             audit.record_outcome(AIAuditOutcome.UNAUTHORIZED)
         raise
+    except SQLAlchemyError:
+        error_id = str(uuid.uuid4())
+        logger.exception("Evaluation Draft database error [Reference ID: %s]", error_id)
+        audit.record_outcome(AIAuditOutcome.DEPENDENCY_ERROR, reference_id=error_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"HR data service temporarily unavailable. Reference ID: {error_id}",
+        ) from None
     except (RuntimeError, TimeoutError):
         error_id = str(uuid.uuid4())
         logger.exception("Evaluation Draft AI service error [Reference ID: %s]", error_id)

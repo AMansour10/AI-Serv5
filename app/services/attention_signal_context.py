@@ -25,7 +25,11 @@ from app.services.performance_insight_context import (
     calculate_trend,
     parse_period_key,
 )
-from app.services.shared_hr_data import get_shared_employee, is_shared_hr_schema
+from app.services.shared_hr_data import (
+    build_shared_attention_context,
+    get_shared_employee,
+    is_shared_hr_schema,
+)
 
 # Context budget limits
 MAX_PERFORMANCE_RECORDS = 10
@@ -264,6 +268,8 @@ class AttentionSignalContextBuilder:
                     "role_title": _clean_str(employee.role_title, 100),
                     "department": _clean_str(employee.department, 100),
                 }
+            if employee:
+                return build_shared_attention_context(db, employee, target_period)
             return {
                 "employee": employee_dict,
                 "has_sufficient_data": False,

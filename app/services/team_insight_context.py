@@ -37,7 +37,7 @@ from app.services.performance_insight_context import (
     calculate_trend,
     parse_period_key,
 )
-from app.services.shared_hr_data import is_shared_hr_schema
+from app.services.shared_hr_data import build_shared_team_context, is_shared_hr_schema
 
 MAX_FIELD_CHARS = 300
 MAX_DRILL_DOWN_FACTORS = 10
@@ -141,14 +141,7 @@ class TeamInsightContextBuilder:
             }
 
         if is_shared_hr_schema(db.get_bind()):
-            return {
-                "has_sufficient_data": False,
-                "department": clean_dept,
-                "period": period,
-                "missing_categories": ["performance_records"],
-                "message": "The shared HR schema has no approved PerformanceRecord table required by Team Insight.",
-                "grounding_registry": {},
-            }
+            return build_shared_team_context(db, clean_dept, period)
 
         # 1. Query approved employees belonging strictly to the requested department
         employees = (
