@@ -336,6 +336,36 @@ def build_shared_performance_context(
         f"Insufficient performance records (minimum {min_periods} required, found {len(records)})." if len(records) < min_periods
         else "Only one approved performance period available; cross-period comparative trend requires at least two periods."
     )
+    from app.services.performance_insight_context import METRIC_FIELDS, calculate_trend
+
+    metric_trends: dict[str, dict[str, Any]] = {}
+    if has_trend and target and previous:
+        for metric in METRIC_FIELDS:
+            metric_trends[metric] = calculate_trend(
+                current_value=target.get(metric, 0.0),
+                previous_value=previous.get(metric, 0.0),
+                threshold=0.0,
+            )
+
+    period_over_period: list[dict[str, Any]] = []
+    if len(records) >= 2:
+        for i in range(len(records) - 1):
+            p_from = records[i]
+            p_to = records[i + 1]
+            step_trends = {
+                m: calculate_trend(
+                    current_value=p_to.get(m, 0.0),
+                    previous_value=p_from.get(m, 0.0),
+                    threshold=0.0,
+                )
+                for m in METRIC_FIELDS
+            }
+            period_over_period.append({
+                "from_period": p_from["period"],
+                "to_period": p_to["period"],
+                "metric_trends": step_trends,
+            })
+
     return {
         "employee": {"id": employee.id, "role_title": employee.role_title, "department": employee.department},
         "has_sufficient_data": len(records) >= min_periods,
@@ -345,8 +375,14 @@ def build_shared_performance_context(
         "comparison_period": previous["period"] if previous else None,
         "facts": {"records_count": len(records), "periods": [r["period"] for r in records], "metrics_by_period": records},
         "metrics_by_period": records,
-        "calculated_trends": {"comparison_available": has_trend, "from_period": previous["period"] if previous else None, "to_period": target["period"] if target else period, "metric_trends": {}, "period_over_period": []},
-        "trends": {},
+        "calculated_trends": {
+            "comparison_available": has_trend,
+            "from_period": previous["period"] if previous else None,
+            "to_period": target["period"] if target else period,
+            "metric_trends": metric_trends,
+            "period_over_period": period_over_period,
+        },
+        "trends": metric_trends,
     }
 
 

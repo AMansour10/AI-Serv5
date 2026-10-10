@@ -829,6 +829,8 @@ GENERIC_EVALUATIVE_WORDS: set[str] = {
     "employee", "peer", "peers", "team", "organization", "department", "company",
     "overall", "throughout", "across", "during", "future", "ongoing", "further", "additional",
     "well", "also", "both", "all", "each", "every", "multiple", "various", "key",
+    "help", "helps", "helping", "sustain", "sustains", "sustaining", "translate", "translates", "translating",
+    "enhance", "enhances", "enhancing", "enhancement", "effectiveness", "efficiency", "consistency", "consistent",
 }
 
 AWARD_PATTERN = re.compile(

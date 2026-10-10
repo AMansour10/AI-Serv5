@@ -376,8 +376,14 @@ Remember:
                 parsed_data = json.loads(clean_json)
                 model_output = EvaluationDraftModelOutput.model_validate(parsed_data)
 
+                validation_context = dict(context)
+                if manager_notes:
+                    validation_context["manager_notes"] = manager_notes
+                if entered_scores:
+                    validation_context["entered_scores"] = entered_scores
+
                 # Validate grounding and safety constraints
-                self._validate_model_output(model_output, approved_sources, context=context)
+                self._validate_model_output(model_output, approved_sources, context=validation_context)
 
                 return EvaluationDraftSuccessResponse(
                     employee_id=employee_id,
